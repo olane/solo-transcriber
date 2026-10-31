@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.uv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# App data (uploads, stems, scores)
+data/
+
+# Agent scratch
+.paseo-tmp/
+
+# macOS
+.DS_Store
+
+# Local env
+.env

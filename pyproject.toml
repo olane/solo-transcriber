@@ -1,0 +1,35 @@
+[project]
+name = "solo-transcriber"
+version = "0.1.0"
+description = "Isolate a saxophone stem from a track and turn it into sheet music."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.7",
+    "music21>=9.3",
+    "librosa>=0.10.2",
+    "soundfile>=0.12.1",
+    "imageio-ffmpeg>=0.5.1",
+    "numpy>=1.24,<2",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+# Heavy, platform-specific models. Install with: uv sync --extra ml
+ml = [
+    "demucs>=4.1.0,<5",
+    "basic-pitch>=0.4.0",
+    "torch==2.2.2",
+    "torchaudio==2.2.2",
+]
+dev = [
+    "pytest>=8.2",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
