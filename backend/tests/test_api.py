@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def make_sine(path):
+def make_sine(path, seconds=3.0):
     sr = 44100
-    t = np.arange(sr) / sr
+    t = np.arange(int(sr * seconds)) / sr
     sf.write(str(path), 0.1 * np.sin(2 * np.pi * 440 * t), sr)
     return path
 
@@ -25,19 +25,32 @@ def wait_for(client, job_id, statuses, timeout=20.0):
     raise AssertionError(f"Timed out waiting for {statuses}; last job: {job}")
 
 
+def upload(client, path):
+    with path.open("rb") as handle:
+        response = client.post(
+            "/api/jobs", files={"file": (path.name, handle, "audio/wav")}
+        )
+    assert response.status_code == 200, response.text
+    return wait_for(client, response.json()["id"], {"awaiting_section", "error"})
+
+
 def test_mock_pipeline_end_to_end(tmp_path):
     client = TestClient(app)
     wav = make_sine(tmp_path / "take.wav")
 
-    with wav.open("rb") as handle:
-        response = client.post(
-            "/api/jobs", files={"file": ("take.wav", handle, "audio/wav")}
-        )
+    job = upload(client, wav)
+    assert job["status"] == "awaiting_section", job
+    assert job["preview_url"]
+    assert job["duration"] == 3.0
+
+    response = client.post(
+        f"/api/jobs/{job['id']}/separate", json={"start": 0.25, "end": 2.5}
+    )
     assert response.status_code == 200, response.text
-    job = response.json()
 
     job = wait_for(client, job["id"], {"awaiting_stem", "error"})
     assert job["status"] == "awaiting_stem", job
+    assert job["section"] == {"start": 0.25, "end": 2.5}
     assert any(stem["suggested"] for stem in job["stems"])
 
     response = client.post(f"/api/jobs/{job['id']}/transcribe", json={"stem": "other"})
@@ -65,13 +78,19 @@ def test_mock_pipeline_end_to_end(tmp_path):
 
 def test_unknown_stem_is_rejected(tmp_path):
     client = TestClient(app)
-    wav = make_sine(tmp_path / "take2.wav")
-    with wav.open("rb") as handle:
-        response = client.post(
-            "/api/jobs", files={"file": ("take2.wav", handle, "audio/wav")}
-        )
-    job = wait_for(client, response.json()["id"], {"awaiting_stem", "error"})
+    job = upload(client, make_sine(tmp_path / "take2.wav"))
+    client.post(f"/api/jobs/{job['id']}/separate", json={"start": 0, "end": 3})
+    job = wait_for(client, job["id"], {"awaiting_stem", "error"})
     response = client.post(
         f"/api/jobs/{job['id']}/transcribe", json={"stem": "kazoo"}
+    )
+    assert response.status_code == 400
+
+
+def test_section_must_be_at_least_two_seconds(tmp_path):
+    client = TestClient(app)
+    job = upload(client, make_sine(tmp_path / "take3.wav"))
+    response = client.post(
+        f"/api/jobs/{job['id']}/separate", json={"start": 0, "end": 1.0}
     )
     assert response.status_code == 400

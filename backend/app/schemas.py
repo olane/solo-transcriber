@@ -14,6 +14,16 @@ class StemOut(BaseModel):
     suggested: bool = False
 
 
+class SectionOut(BaseModel):
+    start: float
+    end: float
+
+
+class SectionRequest(BaseModel):
+    start: float = 0.0
+    end: float | None = None
+
+
 class TranscriptionOut(BaseModel):
     bpm: float
     note_count: int
@@ -32,6 +42,8 @@ class JobOut(BaseModel):
     duration: float = 0.0
     stems: list[StemOut] = Field(default_factory=list)
     selected_stem: str | None = None
+    section: SectionOut | None = None
+    preview_url: str | None = None
     transcription: TranscriptionOut | None = None
     mock: bool = False
 

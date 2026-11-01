@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config
 from .jobs import manager
 from .pipeline.notation import TIME_SIGNATURES
-from .schemas import Instrument, JobOut, ScoreFormat, TranscribeRequest
+from .schemas import Instrument, JobOut, ScoreFormat, SectionRequest, TranscribeRequest
 
 ALLOWED_SUFFIXES = {
     ".mp3",
@@ -84,7 +84,7 @@ async def create_job(file: UploadFile = File(...)) -> JobOut:
         shutil.rmtree(job.dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    manager.start_separation(job, upload)
+    manager.start_preparation(job, upload)
     return manager.snapshot(job)
 
 
@@ -93,17 +93,41 @@ def read_job(job_id: str) -> JobOut:
     return manager.snapshot(get_job_or_404(job_id))
 
 
+@app.post("/api/jobs/{job_id}/separate", response_model=JobOut)
+def separate(job_id: str, request: SectionRequest) -> JobOut:
+    job = get_job_or_404(job_id)
+    with job.lock:
+        status = job.status
+        duration = job.duration
+    if status in {"queued", "preparing", "separating", "transcribing"}:
+        raise HTTPException(status_code=409, detail="This job is still running")
+    if duration <= 0:
+        raise HTTPException(status_code=409, detail="The audio is not ready yet")
+
+    start = max(0.0, float(request.start))
+    end = duration if request.end is None else min(duration, float(request.end))
+    if end - start < 2.0:
+        raise HTTPException(status_code=400, detail="Choose at least 2 seconds of audio")
+    if start >= end:
+        raise HTTPException(status_code=400, detail="The section end must be after its start")
+
+    manager.start_section_separation(job, start, end)
+    return manager.snapshot(job)
+
+
 @app.post("/api/jobs/{job_id}/transcribe", response_model=JobOut)
 def transcribe(job_id: str, request: TranscribeRequest) -> JobOut:
     job = get_job_or_404(job_id)
     with job.lock:
         status = job.status
         stems = list(job.stems)
-    if status in {"separating", "transcribing", "queued"}:
+    if status in {"queued", "preparing", "separating", "transcribing"}:
         raise HTTPException(status_code=409, detail="This job is still running")
+    if status == "awaiting_section":
+        raise HTTPException(status_code=409, detail="Choose a section first")
     if request.stem != "original" and request.stem not in stems:
         raise HTTPException(status_code=400, detail="Unknown stem")
-    if not job.source_wav.exists():
+    if not job.mix_wav.exists():
         raise HTTPException(status_code=409, detail="The audio has not been prepared yet")
     manager.start_transcription(job, request.stem)
     return manager.snapshot(job)

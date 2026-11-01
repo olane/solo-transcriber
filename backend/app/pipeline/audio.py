@@ -66,3 +66,64 @@ def detect_bpm(path: Path) -> float | None:
     if not 30.0 <= value <= 300.0:
         return None
     return round(value, 1)
+
+
+def trim_wav(src: Path, dst: Path, start: float, end: float) -> Path:
+    """Cut [start, end) seconds out of a WAV into a new stereo 44.1 kHz WAV."""
+    if end <= start:
+        raise ValueError("The section end must be after its start")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if start <= 0.01 and end >= wav_duration(src) - 0.01:
+        shutil.copyfile(src, dst)
+        return dst
+    cmd = [
+        ffmpeg_binary(),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{start:.3f}",
+        "-i",
+        str(src),
+        "-t",
+        f"{end - start:.3f}",
+        "-vn",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "-c:a",
+        "pcm_s16le",
+        str(dst),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Could not trim audio: {result.stderr.strip()[-500:]}")
+    return dst
+
+
+def make_preview(src: Path, dst: Path) -> Path:
+    """Small mono MP3 used only for the browser waveform."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        ffmpeg_binary(),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(src),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-b:a",
+        "48k",
+        str(dst),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Could not build the waveform preview: {result.stderr.strip()[-500:]}")
+    return dst
