@@ -10,16 +10,54 @@ from scipy.ndimage import median_filter
 HOP_LENGTH = 160
 SAMPLE_RATE = 16000
 MIN_NOTE_SECONDS = 0.06
-PITCH_CONFIRM_FRAMES = 2
 MERGE_GAP_SECONDS = 0.05
+PITCH_CONFIRM_FRAMES = 2
+PITCH_CENTER_FRAMES = 5
+PITCH_TOLERANCE_SEMITONES = 0.75
+ONSET_DELTA = 0.1
+ONSET_WAIT_FRAMES = 2
+
+
+def _onset_mask(onsets: Any, length: int) -> np.ndarray:
+    """Normalise frame indices or a boolean mask into a mask of ``length``."""
+    mask = np.zeros(length, dtype=bool)
+    if onsets is None:
+        return mask
+    values = np.asarray(onsets)
+    if values.size == 0:
+        return mask
+    if values.dtype == bool:
+        width = min(length, values.size)
+        mask[:width] = values[:width]
+        return mask
+    indices = values.astype(int)
+    indices = indices[(indices >= 0) & (indices < length)]
+    mask[indices] = True
+    return mask
+
+
+def _pitch_center(values: np.ndarray, start: int, end: int, fallback: float) -> float:
+    window = values[start:end]
+    window = window[np.isfinite(window)]
+    if window.size == 0:
+        return fallback
+    return float(np.median(window))
 
 
 def _segment_notes(
     f0: np.ndarray,
     periodicity: np.ndarray,
     times: np.ndarray,
+    onsets: Any = None,
     threshold: float = 0.5,
 ) -> list[tuple[int, int, int]]:
+    """Turn a frame-wise f0 curve into note segments.
+
+    Onsets are first-class: a detected attack starts a new note even when the
+    pitch is unchanged, so repeated notes survive. Pitch changes must persist
+    for a few frames before they split a note, and the pitch of each segment is
+    the median over its frames, which centres vibrato.
+    """
     voiced = (periodicity > threshold) & (f0 > 0) & np.isfinite(f0)
     if voiced.sum() < 3:
         return []
@@ -32,55 +70,123 @@ def _segment_notes(
     smoothed = np.interp(indices, indices[good], smoothed[good])
     smoothed = median_filter(smoothed, size=5)
     smoothed[~voiced] = np.nan
-    rounded = np.round(smoothed)
 
-    segments: list[list[int]] = []
-    current: list[int] | None = None
-    candidate: tuple[int, int] | None = None
+    onset_mask = _onset_mask(onsets, len(smoothed))
 
-    for index in range(len(rounded)):
-        if not voiced[index] or np.isnan(rounded[index]):
+    segments: list[list[float]] = []
+    current: list[float] | None = None
+    candidate: tuple[int, float] | None = None
+
+    for index in range(len(smoothed)):
+        if not voiced[index] or not np.isfinite(smoothed[index]):
             if current is not None:
                 segments.append(current)
                 current = None
             candidate = None
             continue
 
-        pitch = int(rounded[index])
+        pitch = float(smoothed[index])
+
         if current is None:
-            current = [index, index, pitch]
+            center = _pitch_center(
+                smoothed, index, index + PITCH_CENTER_FRAMES, pitch
+            )
+            current = [index, index, center]
             candidate = None
-        elif pitch == current[2]:
+        elif onset_mask[index] and index > current[0]:
+            if index - 1 >= current[0]:
+                segments.append([current[0], index - 1, current[2]])
+            center = _pitch_center(
+                smoothed, index, index + PITCH_CENTER_FRAMES, pitch
+            )
+            current = [index, index, center]
+            candidate = None
+        elif abs(pitch - current[2]) <= PITCH_TOLERANCE_SEMITONES:
             current[1] = index
             candidate = None
-        elif candidate is None or pitch != candidate[0]:
-            candidate = (pitch, index)
-        elif index - candidate[1] >= PITCH_CONFIRM_FRAMES:
-            cut = candidate[1]
+        elif (
+            candidate is None
+            or abs(pitch - candidate[1]) > PITCH_TOLERANCE_SEMITONES
+        ):
+            center = _pitch_center(
+                smoothed, index, index + PITCH_CENTER_FRAMES, pitch
+            )
+            candidate = (index, center)
+        elif index - candidate[0] >= PITCH_CONFIRM_FRAMES:
+            cut = candidate[0]
             previous = [current[0], cut - 1, current[2]]
             if previous[1] >= previous[0]:
                 segments.append(previous)
-            current = [cut, index, pitch]
+            current = [cut, index, candidate[1]]
             candidate = None
         else:
             current[1] = index
+
         if current is not None:
             current[1] = index
 
     if current is not None:
         segments.append(current)
 
-    merged: list[list[int]] = []
-    for segment in segments:
+    refined: list[tuple[int, int, int]] = []
+    for start_frame, end_frame, _ in segments:
+        start = int(start_frame)
+        end = int(end_frame)
+        values = smoothed[start : end + 1]
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            continue
+        pitch = int(np.round(np.median(values)))
+        if 0 <= pitch <= 127:
+            refined.append((start, end, pitch))
+
+    merged: list[tuple[int, int, int]] = []
+    for start, end, pitch in refined:
+        previous_end = merged[-1][1] if merged else -1
         if (
             merged
-            and segment[2] == merged[-1][2]
-            and times[segment[0]] - times[merged[-1][1]] < MERGE_GAP_SECONDS
+            and pitch == merged[-1][2]
+            and times[start] - times[previous_end] < MERGE_GAP_SECONDS
+            and not onset_mask[previous_end + 1 : start + 1].any()
         ):
-            merged[-1][1] = segment[1]
+            merged[-1] = (merged[-1][0], end, pitch)
         else:
-            merged.append(segment)
-    return [(a, b, p) for a, b, p in merged]
+            merged.append((start, end, pitch))
+    return merged
+
+
+def _detect_onsets(
+    audio: np.ndarray,
+    sr: int,
+    hop_length: int,
+    fmin: float,
+    fmax: float,
+) -> np.ndarray:
+    """Detect note attacks inside the instrument's frequency range."""
+    if audio.size == 0:
+        return np.array([], dtype=int)
+    envelope = librosa.onset.onset_strength(
+        y=audio,
+        sr=sr,
+        hop_length=hop_length,
+        fmin=float(fmin),
+        fmax=float(fmax),
+    )
+    if envelope.size == 0:
+        return np.array([], dtype=int)
+    scale = float(np.percentile(envelope, 99))
+    if scale <= 0:
+        return np.array([], dtype=int)
+    frames = librosa.onset.onset_detect(
+        onset_envelope=envelope / scale,
+        sr=sr,
+        hop_length=hop_length,
+        units="frames",
+        backtrack=True,
+        wait=ONSET_WAIT_FRAMES,
+        delta=ONSET_DELTA,
+    )
+    return np.asarray(frames, dtype=int)
 
 
 def transcribe_melody(
@@ -112,7 +218,8 @@ def transcribe_melody(
     f0 = f0.squeeze(0).numpy()
     periodicity = periodicity.squeeze(0).numpy()
     times = np.arange(len(f0)) * HOP_LENGTH / sr
-    segments = _segment_notes(f0, periodicity, times)
+    onsets = _detect_onsets(audio, sr, HOP_LENGTH, fmin, fmax)
+    segments = _segment_notes(f0, periodicity, times, onsets)
 
     rms = librosa.feature.rms(y=audio, frame_length=400, hop_length=HOP_LENGTH)[0]
     loudness = float(np.percentile(rms, 90)) or 1.0
@@ -122,7 +229,8 @@ def transcribe_melody(
         end = float(times[end_frame] + HOP_LENGTH / sr)
         if end - start < MIN_NOTE_SECONDS:
             continue
-        level = float(np.mean(rms[start_frame : end_frame + 1]))
+        window = rms[start_frame : end_frame + 1]
+        level = float(np.mean(window)) if window.size else 0.0
         velocity = int(np.clip(55 + 65 * level / loudness, 40, 120))
         notes.append(
             {

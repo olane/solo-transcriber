@@ -112,12 +112,15 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
   picker is lossless. Only files over ~10 minutes get a 320 kbps MP3 audition
   copy. Separation and transcription always use the WAV.
 - **Melody mode** (default) uses CREPE to follow the dominant single line and
-  limits detection to your sax's concert range. It is much cleaner on a
-  saxophone stem than polyphonic transcription.
+  limits detection to your sax's concert range. Note attacks start a new note
+  even when the pitch is unchanged, so repeated notes are preserved, and the
+  pitch of each note is the median over its frames, which centres vibrato.
 - **Basic Pitch mode** tries to transcribe every pitched note in the stem. Use it
   when the sax is buried, or as an A/B comparison.
-- Fast runs, growls and vibrato still produce wrong rhythms or octaves. Clean up
-  in MuseScore; the half/double tempo buttons can fix a doubling grid.
+- Octave harmonics outside the sax range are folded back into range, and short
+  isolated octave spikes are snapped to their neighbours. Fast runs, growls and
+  wide vibrato still produce wrong rhythms or notes. Clean up in MuseScore; the
+  half/double tempo buttons can fix a doubling grid.
 - Tempo comes from beat tracking on the mix; swing and rubato may need a manual
   BPM. Time signature defaults to 4/4.
 - Pitch bends are detected but not engraved.
@@ -154,12 +157,17 @@ backend/app/
   pipeline/
     audio.py           ffmpeg decode, duration, BPM
     separate.py        Demucs stem separation
-    melody.py          CREPE monophonic melody tracking
-    transcribe.py      melody / Basic Pitch dispatch, range filter, mono cleanup
+    melody.py          CREPE tracking, onset-aware note segmentation
+    transcribe.py      melody / Basic Pitch dispatch, range and octave repair
     notation.py        music21 score building and transposition
-backend/tests/         notation + mock pipeline tests
+    evaluation.py      mir_eval reference scoring for benchmark runs
+    synthetic.py       synthetic sax stems with exact note references
+backend/tests/         notation, melody, evaluation and mock pipeline tests
 frontend/src/          React UI, OSMD score viewer
 scripts/dev.sh         backend + frontend in one terminal
+scripts/evaluate.py    transcription accuracy benchmark
+scripts/make_synthetic_benchmark.py
+                       generate a repeatable regression dataset
 ```
 
 ## Tests
@@ -169,7 +177,36 @@ uv run --extra dev pytest
 ```
 
 The API test runs in demo mode and exercises upload, separation, transcription
-and score export end to end.
+and score export end to end. The melody tests use synthetic f0 curves to cover
+repeated notes, vibrato, onset splits and octave jumps without loading a model.
+
+## Evaluating transcription
+
+Put isolated sax stems next to reference scores with the same name (`take1.wav`
+plus `take1.mid`, `take1.musicxml` or a `take1.json` note list) and run. To make
+a reference from your own repertoire, run the app once, fix the part in
+MuseScore, and export it as MIDI beside the source audio:
+
+```bash
+uv run python scripts/evaluate.py path/to/dataset --instrument alto --mode melody
+```
+
+It prints onset, pitch and full-note F-measures per file and a mean summary, and
+`--json metrics.json` writes the same data for tracking changes. Use this before
+tuning segmentation, range or model settings; otherwise it is hard to tell
+whether a change helped.
+
+No recordings yet? Generate a deterministic smoke suite covering repeated notes,
+vibrato, chromatic runs, fast sixteenths, octave trills, scoops and bleed:
+
+```bash
+uv run python scripts/make_synthetic_benchmark.py benchmark/synthetic --instrument alto
+uv run python scripts/evaluate.py benchmark/synthetic --instrument alto --mode melody
+```
+
+The synthetic scores are useful for comparing changes and catching regressions,
+but they are not a prediction of real-world accuracy. Add a few corrected real
+transcriptions to the dataset as soon as you can.
 
 ## Roadmap
 

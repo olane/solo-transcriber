@@ -11,6 +11,9 @@ from .melody import transcribe_melody
 MIN_NOTE_SECONDS = 0.04
 SAME_ONSET_SECONDS = 0.001
 NOTE_GAP_SECONDS = 0.01
+ALTISSIMO_SEMITONES = 3
+RANGE_BOTTOM_MARGIN = 2
+OCTAVE_LEAP_SECONDS = 0.35
 
 # Concert-pitch MIDI ranges for each sax, with a little room for altissimo.
 INSTRUMENT_RANGES = {
@@ -30,7 +33,62 @@ def midi_to_hz(midi: float) -> float:
 
 def frequency_bounds(instrument: str) -> tuple[float, float]:
     low, high = INSTRUMENT_RANGES[instrument]
-    return midi_to_hz(low - 2), midi_to_hz(high + 3)
+    return midi_to_hz(low - RANGE_BOTTOM_MARGIN), midi_to_hz(
+        high + ALTISSIMO_SEMITONES
+    )
+
+
+def enforce_instrument_range(
+    notes: list[dict[str, Any]], instrument: str
+) -> list[dict[str, Any]]:
+    """Fold octave harmonics into the sax range and drop distant bleed."""
+    low, high = INSTRUMENT_RANGES[instrument]
+    floor = low - RANGE_BOTTOM_MARGIN
+    ceiling = high + ALTISSIMO_SEMITONES
+    ranged: list[dict[str, Any]] = []
+    for note in notes:
+        pitch = int(note["pitch"])
+        while pitch > ceiling:
+            pitch -= 12
+        if pitch < floor:
+            pitch += 12
+        if floor <= pitch <= ceiling:
+            item = dict(note)
+            item["pitch"] = pitch
+            ranged.append(item)
+    return ranged
+
+
+def repair_octave_jumps(
+    notes: list[dict[str, Any]], instrument: str
+) -> list[dict[str, Any]]:
+    """Snap a short, isolated octave spike back to its neighbours' octave."""
+    low, high = INSTRUMENT_RANGES[instrument]
+    repaired = [dict(note) for note in notes]
+    for index in range(1, len(repaired) - 1):
+        current = repaired[index]
+        previous = repaired[index - 1]
+        following = repaired[index + 1]
+        if abs(int(previous["pitch"]) - int(following["pitch"])) > 2:
+            continue
+        current_length = float(current["end"]) - float(current["start"])
+        neighbouring_length = min(
+            float(previous["end"]) - float(previous["start"]),
+            float(following["end"]) - float(following["start"]),
+        )
+        if current_length > OCTAVE_LEAP_SECONDS:
+            continue
+        if current_length > 0.75 * neighbouring_length:
+            continue
+        reference = (float(previous["pitch"]) + float(following["pitch"])) / 2.0
+        candidate = int(current["pitch"])
+        while candidate - reference > 6:
+            candidate -= 12
+        while reference - candidate > 6:
+            candidate += 12
+        if candidate != int(current["pitch"]) and low <= candidate <= high:
+            current["pitch"] = candidate
+    return repaired
 
 
 def monophonic_cleanup(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -62,7 +120,7 @@ def note_events_to_notes(note_events) -> list[dict[str, Any]]:
         {
             "start": round(float(start), 3),
             "end": round(float(end), 3),
-            "pitch": int(pitch),
+            "pitch": int(round(float(pitch))),
             "velocity": max(1, min(127, round(float(amplitude) * 127))),
             "bend": [int(value) for value in bend] if bend else None,
         }
@@ -118,7 +176,6 @@ def _basic_pitch_notes(path: Path, instrument: str) -> list[dict[str, Any]]:
             "coremltools (uv pip install coremltools), or install basic-pitch[onnx]."
         ) from exc
 
-    low, high = INSTRUMENT_RANGES[instrument]
     fmin, fmax = frequency_bounds(instrument)
     _, _, note_events = predict(
         str(path),
@@ -128,9 +185,7 @@ def _basic_pitch_notes(path: Path, instrument: str) -> list[dict[str, Any]]:
         minimum_frequency=fmin,
         maximum_frequency=fmax,
     )
-    notes = note_events_to_notes(note_events)
-    notes = [note for note in notes if low - 1 <= note["pitch"] <= high + 1]
-    return monophonic_cleanup(notes)
+    return monophonic_cleanup(note_events_to_notes(note_events))
 
 
 def _melody_notes(path: Path, instrument: str) -> list[dict[str, Any]]:
@@ -168,6 +223,8 @@ def transcribe_file(
         notes = _basic_pitch_notes(stem_wav, instrument)
 
     notes = monophonic_cleanup(notes)
+    notes = enforce_instrument_range(notes, instrument)
+    notes = repair_octave_jumps(notes, instrument)
     if not notes:
         raise RuntimeError("No notes were detected in that stem")
 
