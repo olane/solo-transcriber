@@ -15,7 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.evaluation import evaluate_notes, find_reference, load_reference_notes  # noqa: E402
+from app.evaluation import (  # noqa: E402
+    evaluate_notes,
+    find_reference,
+    load_reference_notes,
+    render_estimate,
+)
 from app.pipeline.transcribe import (  # noqa: E402
     INSTRUMENT_RANGES,
     MODES,
@@ -42,6 +47,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Use synthetic notes instead of the models (plumbing smoke test)",
     )
+    parser.add_argument(
+        "--rendered",
+        action="store_true",
+        help="Score the quantised score output instead of the raw note events",
+    )
     parser.add_argument("--json", type=Path, help="Write metrics to this JSON file")
     args = parser.parse_args(argv)
 
@@ -65,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"fail {audio.name}: could not read {reference_path.name}: {exc}")
             continue
         try:
-            notes, _ = transcribe_file(
+            notes, meta = transcribe_file(
                 audio,
                 audio,
                 mock=args.mock,
@@ -77,11 +87,28 @@ def main(argv: list[str] | None = None) -> int:
             print(f"fail {audio.name}: {exc}")
             continue
 
+        raw_notes = len(notes)
+        if args.rendered:
+            try:
+                notes = render_estimate(
+                    notes,
+                    float(meta["bpm"]),
+                    args.instrument,
+                    str(meta.get("time_signature", "4/4")),
+                    meta.get("bar_offset"),
+                )
+            except Exception as exc:
+                failures += 1
+                print(f"fail {audio.name}: could not render score: {exc}")
+                continue
+
         scores = evaluate_notes(reference, notes)
         row: dict[str, object] = {
             "file": audio.name,
             "reference_notes": len(reference),
             "estimated_notes": len(notes),
+            "raw_notes": raw_notes,
+            "rendered": args.rendered,
             **scores,
         }
         rows.append(row)
@@ -89,7 +116,9 @@ def main(argv: list[str] | None = None) -> int:
             f"{audio.name}: ref={len(reference)} est={len(notes)} "
             f"onset_F={scores.get('Onset_F-measure', 0.0):.3f} "
             f"pitch_F={scores.get('F-measure_no_offset', 0.0):.3f} "
-            f"full_F={scores.get('F-measure', 0.0):.3f}"
+            f"full_F={scores.get('F-measure', 0.0):.3f} "
+            f"octave_err={scores.get('Octave_Error_Rate', 0.0):.3f} "
+            f"repeat_recall={scores.get('Repeated_Note_Recall', 0.0):.3f}"
         )
 
     if not rows:
@@ -105,12 +134,24 @@ def main(argv: list[str] | None = None) -> int:
         / len(rows),
         "mean_full_F": sum(float(row.get("F-measure", 0.0)) for row in rows)
         / len(rows),
+        "mean_octave_error_rate": sum(
+            float(row.get("Octave_Error_Rate", 0.0)) for row in rows
+        )
+        / len(rows),
+        "mean_repeated_note_recall": sum(
+            float(row.get("Repeated_Note_Recall", 0.0)) for row in rows
+        )
+        / len(rows),
+        "rendered": args.rendered,
     }
     print(
         f"\n{summary['files']} file(s): "
         f"onset F={summary['mean_onset_F']:.3f} "
         f"pitch F={summary['mean_pitch_F']:.3f} "
-        f"full F={summary['mean_full_F']:.3f}"
+        f"full F={summary['mean_full_F']:.3f} "
+        f"octave err={summary['mean_octave_error_rate']:.3f} "
+        f"repeat recall={summary['mean_repeated_note_recall']:.3f}"
+        + (" (rendered scores)" if args.rendered else "")
     )
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
