@@ -29,6 +29,7 @@ ALLOWED_SUFFIXES = {
 }
 
 config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+manager.load()
 
 app = FastAPI(title="Solo Transcriber", version="0.1.0")
 app.add_middleware(
@@ -88,9 +89,20 @@ async def create_job(file: UploadFile = File(...)) -> JobOut:
     return manager.snapshot(job)
 
 
+@app.get("/api/jobs", response_model=list[JobOut])
+def list_jobs() -> list[JobOut]:
+    return [manager.snapshot(job) for job in manager.list_saved()]
+
+
 @app.get("/api/jobs/{job_id}", response_model=JobOut)
 def read_job(job_id: str) -> JobOut:
     return manager.snapshot(get_job_or_404(job_id))
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str) -> dict:
+    manager.remove(get_job_or_404(job_id))
+    return {"ok": True}
 
 
 @app.post("/api/jobs/{job_id}/separate", response_model=JobOut)

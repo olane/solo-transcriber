@@ -100,3 +100,41 @@ def test_section_must_be_at_least_two_seconds(tmp_path):
         f"/api/jobs/{job['id']}/separate", json={"start": 0, "end": 1.0}
     )
     assert response.status_code == 400
+
+
+def test_saved_jobs_are_listed_and_restored(tmp_path):
+    client = TestClient(app)
+    job = upload(client, make_sine(tmp_path / "saved.wav"))
+    client.post(f"/api/jobs/{job['id']}/separate", json={"start": 0.25, "end": 2.5})
+    job = wait_for(client, job["id"], {"awaiting_stem", "error"})
+    assert job["status"] == "awaiting_stem", job
+    client.post(
+        f"/api/jobs/{job['id']}/transcribe",
+        json={"stem": "other", "instrument": "tenor", "mode": "melody"},
+    )
+    job = wait_for(client, job["id"], {"done", "error"})
+    assert job["status"] == "done", job
+
+    listing = client.get("/api/jobs").json()
+    assert any(item["id"] == job["id"] for item in listing)
+
+    from app.jobs import JobManager
+
+    restored_manager = JobManager()
+    restored_manager.load()
+    restored = restored_manager.get(job["id"])
+    assert restored is not None
+    snapshot = restored_manager.snapshot(restored)
+    assert snapshot.status == "done"
+    assert snapshot.filename == "saved.wav"
+    assert snapshot.section is not None
+    assert snapshot.section.start == 0.25
+    assert snapshot.section.end == 2.5
+    assert [stem.name for stem in snapshot.stems] == ["other", "vocals", "bass"]
+    assert snapshot.transcription is not None
+    assert snapshot.transcription.instrument == "tenor"
+    assert snapshot.transcription.note_count > 0
+
+    response = client.delete(f"/api/jobs/{job['id']}")
+    assert response.status_code == 200, response.text
+    assert client.get(f"/api/jobs/{job['id']}").status_code == 404

@@ -48,6 +48,7 @@ export type Job = {
   original_url: string | null;
   transcription: Transcription | null;
   mock: boolean;
+  created_at: number;
 };
 
 async function failure(response: Response): Promise<string> {
@@ -73,6 +74,15 @@ export async function createJob(file: File): Promise<Job> {
 
 export async function getJob(id: string): Promise<Job> {
   return parse<Job>(await fetch(`/api/jobs/${id}`));
+}
+
+export async function listJobs(): Promise<Job[]> {
+  return parse<Job[]>(await fetch("/api/jobs"));
+}
+
+export async function deleteJob(id: string): Promise<void> {
+  const response = await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await failure(response));
 }
 
 export async function separateSection(
