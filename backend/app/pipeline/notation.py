@@ -6,6 +6,8 @@ from typing import Any
 
 from music21 import clef, instrument, key, metadata, meter, note, pitch, stream, tempo
 
+from .notes import sort_and_dedupe
+
 INSTRUMENTS = {
     "concert": instrument.Saxophone,
     "soprano": instrument.SopranoSaxophone,
@@ -99,12 +101,7 @@ def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if note.get("end", 0) > note.get("start", 0)
         and 0 <= int(note.get("pitch", -1)) <= 127
     ]
-    cleaned.sort(key=lambda item: (float(item["start"]), -int(item.get("velocity", 80))))
-    result: list[dict[str, Any]] = []
-    for item in cleaned:
-        if result and abs(float(item["start"]) - float(result[-1]["start"])) < 0.001:
-            continue
-        result.append(item)
+    result = sort_and_dedupe(cleaned)
     for current, following in zip(result, result[1:]):
         if float(current["end"]) > float(following["start"]):
             current["end"] = max(

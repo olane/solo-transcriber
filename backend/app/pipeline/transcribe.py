@@ -7,9 +7,9 @@ from typing import Any
 from .. import config
 from .audio import detect_bpm, wav_duration
 from .melody import transcribe_melody
+from .notes import sort_and_dedupe
 
 MIN_NOTE_SECONDS = 0.04
-SAME_ONSET_SECONDS = 0.001
 NOTE_GAP_SECONDS = 0.01
 ALTISSIMO_SEMITONES = 3
 RANGE_BOTTOM_MARGIN = 2
@@ -99,13 +99,7 @@ def monophonic_cleanup(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if note["end"] - note["start"] >= MIN_NOTE_SECONDS
         and 0 <= int(note["pitch"]) <= 127
     ]
-    cleaned.sort(key=lambda note: (note["start"], -int(note["velocity"])))
-
-    deduped: list[dict[str, Any]] = []
-    for note in cleaned:
-        if deduped and note["start"] - deduped[-1]["start"] < SAME_ONSET_SECONDS:
-            continue
-        deduped.append(note)
+    deduped = sort_and_dedupe(cleaned)
 
     for current, following in zip(deduped, deduped[1:]):
         latest_end = following["start"] - NOTE_GAP_SECONDS
