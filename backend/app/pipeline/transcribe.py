@@ -6,6 +6,7 @@ from typing import Any
 
 from .. import config
 from .audio import detect_bpm, wav_duration
+from .beats import BeatGrid, detect_beat_grid
 from .melody import transcribe_melody
 from .notes import NoteEvent, sort_and_dedupe
 
@@ -195,12 +196,49 @@ def _melody_notes(path: Path, instrument: str) -> list[NoteEvent]:
         raise RuntimeError(f"Melody transcription failed: {exc}") from exc
 
 
+def _rhythm_metadata(
+    mix_wav: Path,
+    first_note_seconds: float,
+    section_start: float,
+    beat_grid: BeatGrid | None,
+    mock: bool,
+) -> dict[str, Any]:
+    """Tempo, meter and bar origin from the whole mix, not the sax stem."""
+    if mock:
+        return {
+            "bpm": 120.0,
+            "time_signature": "4/4",
+            "bar_offset": first_note_seconds,
+        }
+    grid = beat_grid
+    if grid is None:
+        grid = detect_beat_grid(mix_wav)
+    if grid is not None:
+        bar_start = grid.bar_start_at_or_before(section_start + first_note_seconds)
+        return {
+            "bpm": grid.bpm,
+            "time_signature": grid.time_signature,
+            "bar_offset": (
+                bar_start - section_start
+                if bar_start is not None
+                else first_note_seconds
+            ),
+        }
+    return {
+        "bpm": detect_bpm(mix_wav) or 120.0,
+        "time_signature": "4/4",
+        "bar_offset": first_note_seconds,
+    }
+
+
 def transcribe_file(
     stem_wav: Path,
     mix_wav: Path,
     mock: bool = False,
     mode: str = "melody",
     instrument: str = "alto",
+    section_start: float = 0.0,
+    beat_grid: BeatGrid | None = None,
 ) -> tuple[list[NoteEvent], dict[str, Any]]:
     if instrument not in INSTRUMENT_RANGES:
         raise ValueError(f"Unknown instrument: {instrument}")
@@ -221,9 +259,14 @@ def transcribe_file(
     if not notes:
         raise RuntimeError("No notes were detected in that stem")
 
-    bpm = detect_bpm(mix_wav) or 120.0
+    first_note = float(notes[0]["start"]) if notes else 0.0
+    rhythm = _rhythm_metadata(
+        mix_wav, first_note, section_start, beat_grid, mock
+    )
     return notes, {
-        "bpm": bpm,
+        "bpm": rhythm["bpm"],
+        "time_signature": rhythm["time_signature"],
+        "bar_offset": rhythm["bar_offset"],
         "duration": duration,
-        "first_note": notes[0]["start"] if notes else 0.0,
+        "first_note": first_note,
     }

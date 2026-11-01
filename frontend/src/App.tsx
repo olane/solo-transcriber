@@ -118,6 +118,7 @@ export function App() {
     if (job?.transcription && bpm === null) {
       setBpm(job.transcription.bpm);
       setBpmDraft(job.transcription.bpm.toFixed(1));
+      setTimeSignature(job.transcription.time_signature || "4/4");
     }
   }, [job?.transcription, bpm]);
 
@@ -514,9 +515,11 @@ export function App() {
                     · {instrumentLabel(job.transcription.instrument)}
                   </div>
                   <div className="muted">
+                    Bars follow the whole track's beat grid (
+                    {job.transcription.time_signature}).
                     {job.transcription.first_note > 0.5
-                      ? `Sax enters ${clock(job.transcription.first_note)} into the section; the score starts there`
-                      : "The score starts at the first note in the section"}
+                      ? ` The sax enters ${clock(job.transcription.first_note)} into the section.`
+                      : ""}
                   </div>
                 </div>
                 <div className="downloads">

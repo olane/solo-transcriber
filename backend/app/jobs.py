@@ -13,16 +13,17 @@ from typing import Any
 
 from . import config
 from .pipeline.audio import make_preview, to_wav, trim_wav, wav_duration
+from .pipeline.beats import BeatGrid, detect_beat_grid
 from .pipeline.notation import render_score, safe_title
 from .pipeline.separate import SUGGESTED_STEM, order_stems, separate_stems
 from .pipeline.transcribe import transcribe_file
 from .schemas import JobOut, JobStatus, SectionOut, StemOut, TranscriptionOut
 
-SCORE_CACHE_VERSION = "2"
+SCORE_CACHE_VERSION = "3"
 RUNNING_STATUSES: frozenset[JobStatus] = frozenset(
     {"queued", "preparing", "separating", "transcribing"}
 )
-RUNTIME_JOB_FIELDS = frozenset({"dir", "lock"})
+RUNTIME_JOB_FIELDS = frozenset({"dir", "lock", "beat_grid"})
 
 # Stream the lossless source to the browser for normal tracks; only long files
 # get a compressed audition copy.
@@ -48,8 +49,11 @@ class Job:
     note_count: int = 0
     transcription_duration: float = 0.0
     transcription_first_note: float = 0.0
+    transcription_time_signature: str = "4/4"
+    transcription_bar_offset: float = 0.0
     transcription_instrument: str = "alto"
     transcription_mode: str = "melody"
+    beat_grid: BeatGrid | None = field(default=None, repr=False)
     created_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -216,6 +220,18 @@ class JobManager:
                 "transcription_first_note", "first_note", zero_is_missing=True
             )
         )
+        job.transcription_time_signature = str(
+            restore_value(
+                "transcription_time_signature", "time_signature"
+            )
+            or "4/4"
+        )
+        bar_offset = restore_value("transcription_bar_offset", "bar_offset")
+        job.transcription_bar_offset = (
+            _to_float(bar_offset)
+            if bar_offset is not None
+            else job.transcription_first_note
+        )
         job.bpm = _optional_float(restore_value("bpm", "bpm"))
         job.note_count = int(metadata.get("note_count") or len(notes.get("notes") or []))
 
@@ -242,6 +258,8 @@ class JobManager:
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
+            job.transcription_time_signature = "4/4"
+            job.transcription_bar_offset = 0.0
         return job
 
     def persist(self, job: Job) -> None:
@@ -292,6 +310,8 @@ class JobManager:
                     note_count=job.note_count,
                     duration=job.transcription_duration,
                     first_note=job.transcription_first_note,
+                    time_signature=job.transcription_time_signature,
+                    bar_offset=job.transcription_bar_offset,
                     instrument=job.transcription_instrument,
                     mode=job.transcription_mode,
                 )
@@ -330,6 +350,8 @@ class JobManager:
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
+            job.transcription_time_signature = "4/4"
+            job.transcription_bar_offset = 0.0
             job.transcription_instrument = "alto"
             job.transcription_mode = "melody"
             job.error = None
@@ -348,6 +370,8 @@ class JobManager:
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
+            job.transcription_time_signature = "4/4"
+            job.transcription_bar_offset = 0.0
             job.error = None
         self.persist(job)
         self._executor.submit(
@@ -382,6 +406,7 @@ class JobManager:
                 title,
                 fmt,
                 out,
+                bar_offset=payload.get("bar_offset"),
             )
         download_name = f"{safe_title(title)}-{instrument_key}.{fmt}"
         return out, download_name
@@ -444,16 +469,25 @@ class JobManager:
     ) -> None:
         try:
             self._clear_scores(job)
+            grid = job.beat_grid
+            if grid is None and not job.mock:
+                grid = detect_beat_grid(job.source_wav)
+                with job.lock:
+                    job.beat_grid = grid
             notes, meta = transcribe_file(
                 job.stem_path(stem),
-                job.mix_wav,
+                job.source_wav,
                 mock=job.mock,
                 mode=mode,
                 instrument=instrument,
+                section_start=job.section_start or 0.0,
+                beat_grid=grid,
             )
             payload: dict[str, Any] = {
                 "stem": stem,
                 "bpm": meta["bpm"],
+                "time_signature": meta["time_signature"],
+                "bar_offset": meta["bar_offset"],
                 "duration": meta["duration"],
                 "first_note": meta.get("first_note", 0.0),
                 "instrument": instrument,
@@ -469,6 +503,8 @@ class JobManager:
                 job.note_count = len(notes)
                 job.transcription_duration = float(meta["duration"])
                 job.transcription_first_note = float(meta.get("first_note", 0.0))
+                job.transcription_time_signature = str(meta["time_signature"])
+                job.transcription_bar_offset = float(meta["bar_offset"])
                 job.transcription_instrument = instrument
                 job.transcription_mode = mode
                 job.set_phase("done", "Ready to play", 100)
