@@ -115,10 +115,10 @@ def separate(job_id: str, request: SectionRequest) -> JobOut:
 
     start = max(0.0, float(request.start))
     end = duration if request.end is None else min(duration, float(request.end))
-    if end - start < 2.0:
-        raise HTTPException(status_code=400, detail="Choose at least 2 seconds of audio")
     if start >= end:
         raise HTTPException(status_code=400, detail="The section end must be after its start")
+    if end - start < 2.0:
+        raise HTTPException(status_code=400, detail="Choose at least 2 seconds of audio")
 
     manager.start_section_separation(job, start, end)
     return manager.snapshot(job)

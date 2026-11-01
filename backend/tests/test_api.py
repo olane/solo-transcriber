@@ -100,6 +100,17 @@ def test_section_must_be_at_least_two_seconds(tmp_path):
         f"/api/jobs/{job['id']}/separate", json={"start": 0, "end": 1.0}
     )
     assert response.status_code == 400
+    assert response.json()["detail"] == "Choose at least 2 seconds of audio"
+
+
+def test_section_end_must_follow_its_start(tmp_path):
+    client = TestClient(app)
+    job = upload(client, make_sine(tmp_path / "backwards.wav"))
+    response = client.post(
+        f"/api/jobs/{job['id']}/separate", json={"start": 2.0, "end": 1.0}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "The section end must be after its start"
 
 
 def test_saved_jobs_are_listed_and_restored(tmp_path):
