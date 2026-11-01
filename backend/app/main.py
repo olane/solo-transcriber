@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .jobs import RUNNING_STATUSES, manager
+from .jobs import Job, RUNNING_STATUSES, manager
 from .pipeline.notation import TIME_SIGNATURES
 from .schemas import Instrument, JobOut, ScoreFormat, SectionRequest, TranscribeRequest
 
@@ -40,7 +40,7 @@ app.add_middleware(
 app.mount("/media", StaticFiles(directory=str(config.DATA_DIR)), name="media")
 
 
-def get_job_or_404(job_id: str):
+def get_job_or_404(job_id: str) -> Job:
     job = manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -148,7 +148,7 @@ def read_score(
     instrument: Instrument = Query("alto"),
     time_signature: str = Query("4/4"),
     bpm: float | None = Query(None, ge=20, le=400),
-    format: ScoreFormat = Query("musicxml"),
+    fmt: ScoreFormat = Query("musicxml", alias="format"),
 ) -> FileResponse:
     job = get_job_or_404(job_id)
     if time_signature not in TIME_SIGNATURES:
@@ -160,14 +160,14 @@ def read_score(
 
     try:
         path, download_name = manager.render(
-            job, instrument, time_signature, effective_bpm, format
+            job, instrument, time_signature, effective_bpm, fmt
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     media_type = (
         "application/vnd.recordare.musicxml+xml"
-        if format == "musicxml"
+        if fmt == "musicxml"
         else "audio/midi"
     )
     return FileResponse(path, media_type=media_type, filename=download_name)

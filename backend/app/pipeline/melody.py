@@ -187,8 +187,6 @@ def _segment_notes(
                 segments.append(previous)
             current = [cut, index, candidate[1]]
             candidate = None
-        else:
-            current[1] = index
 
         if current is not None:
             current[1] = index

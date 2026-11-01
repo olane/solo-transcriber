@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from string import Template
 
+from . import config
 from .evaluation import evaluate_notes, find_reference, load_reference_notes
 from .pipeline.audio import wav_duration
 from .pipeline.notation import render_score, safe_title
@@ -82,9 +83,8 @@ def _read_text(path: Path | None) -> str | None:
 
 
 def _osmd_source(report_dir: Path) -> str:
-    root = Path(__file__).resolve().parents[2]
     local = (
-        root
+        config.ROOT
         / "frontend"
         / "node_modules"
         / "opensheetmusicdisplay"

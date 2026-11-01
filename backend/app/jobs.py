@@ -371,7 +371,9 @@ class JobManager:
         )
         out = job.dir / "scores" / f"{safe}.{fmt}"
         if not out.exists():
-            payload = json.loads(job.notes_path.read_text())
+            payload = _read_json(job.notes_path)
+            if payload is None:
+                raise ValueError("This job has no transcription yet")
             render_score(
                 payload["notes"],
                 bpm,
