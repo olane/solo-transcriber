@@ -111,6 +111,98 @@ def build_scenarios(instrument: str = "alto") -> list[Scenario]:
         note(2.62, 3.42, mid + 7, vibrato_cents=25),
     ]
 
+    def phrase(
+        start: float, step: float, pitches: tuple[int, ...], length: float
+    ) -> list[dict[str, Any]]:
+        return [
+            note(start + index * step, start + index * step + length, pitch)
+            for index, pitch in enumerate(pitches)
+        ]
+
+    wide_leaps = phrase(
+        0.20, 0.55, (mid, mid + 12, mid - 5, mid + 7, mid - 12, mid + 9), 0.42
+    )
+    low_register = phrase(0.20, 0.65, (low, low + 2, low + 4, low + 7), 0.55)
+    high_register = phrase(
+        0.20, 0.65, (high, high - 3, high - 5, high - 7), 0.55
+    )
+    staccato = phrase(
+        0.20,
+        0.30,
+        (mid, mid + 2, mid + 4, mid + 5, mid + 4, mid + 2, mid, mid - 2),
+        0.08,
+    )
+    long_tones = phrase(0.20, 1.75, (mid, mid + 5, mid - 3), 1.55)
+    syncopated = [
+        note(start, start + length, pitch)
+        for start, length, pitch in (
+            (0.20, 0.18, mid),
+            (0.45, 0.30, mid + 2),
+            (0.85, 0.18, mid + 4),
+            (1.10, 0.30, mid + 5),
+            (1.50, 0.18, mid + 4),
+            (1.75, 0.30, mid + 2),
+        )
+    ]
+    semitone_trill = [
+        note(0.20 + i * 0.11, 0.29 + i * 0.11, mid + (i % 2)) for i in range(12)
+    ]
+    arpeggio = phrase(
+        0.20, 0.26, (mid, mid + 4, mid + 7, mid + 12, mid + 7, mid + 4), 0.22
+    )
+    descending_scale = phrase(
+        0.20,
+        0.24,
+        (mid + 12, mid + 10, mid + 9, mid + 7, mid + 5, mid + 4, mid + 2, mid),
+        0.20,
+    )
+    dotted_rhythm = [
+        note(start, start + length, pitch)
+        for start, length, pitch in (
+            (0.20, 0.42, mid),
+            (0.62, 0.18, mid + 2),
+            (0.95, 0.42, mid + 4),
+            (1.37, 0.18, mid + 5),
+            (1.70, 0.42, mid + 7),
+            (2.12, 0.18, mid + 4),
+        )
+    ]
+    triplet_step = 60.0 / 120.0 / 3.0
+    triplets = phrase(
+        0.20,
+        triplet_step,
+        (mid, mid + 2, mid + 4, mid + 5, mid + 7, mid + 5, mid + 4, mid + 2, mid),
+        triplet_step * 0.9,
+    )
+    falls = [
+        note(
+            0.20 + i * 0.82,
+            0.90 + i * 0.82,
+            mid + 4,
+            fall_cents=200,
+            fall_seconds=0.18,
+        )
+        for i in range(4)
+    ]
+    wide_vibrato = [
+        note(
+            0.20 + i * 1.1,
+            1.20 + i * 1.1,
+            pitch,
+            vibrato_cents=80,
+            vibrato_hz=4.8,
+        )
+        for i, pitch in enumerate((mid - 2, mid + 3, mid + 7))
+    ]
+    grace_notes = [
+        event
+        for i in range(4)
+        for event in (
+            note(0.20 + i * 0.95, 0.26 + i * 0.95, mid + 2),
+            note(0.26 + i * 0.95, 0.81 + i * 0.95, mid),
+        )
+    ]
+
     return [
         Scenario(
             "repeated-articulated",
@@ -158,6 +250,76 @@ def build_scenarios(instrument: str = "alto") -> list[Scenario]:
             "Repeated notes, vibrato and a legato run",
             mixed,
         ),
+        Scenario(
+            "wide-leaps",
+            "Six notes alternating upward and downward leaps up to an octave",
+            wide_leaps,
+        ),
+        Scenario(
+            "low-register",
+            "Four sustained notes around the bottom of the range",
+            low_register,
+        ),
+        Scenario(
+            "high-register",
+            "Four sustained notes around the top of the range",
+            high_register,
+        ),
+        Scenario(
+            "staccato",
+            "Eight 80 ms staccato notes with clear gaps",
+            staccato,
+        ),
+        Scenario(
+            "long-tones",
+            "Three long sustained notes with 200 ms gaps",
+            long_tones,
+        ),
+        Scenario(
+            "syncopated",
+            "Off-beat short and long notes in a syncopated rhythm",
+            syncopated,
+        ),
+        Scenario(
+            "semitone-trill",
+            "Fast semitone alternation that must not be merged",
+            semitone_trill,
+        ),
+        Scenario(
+            "arpeggio",
+            "Ascending and descending arpeggio spanning an octave",
+            arpeggio,
+        ),
+        Scenario(
+            "descending-scale",
+            "Diatonic descending scale over an octave",
+            descending_scale,
+        ),
+        Scenario(
+            "dotted-rhythm",
+            "Alternating dotted and short notes",
+            dotted_rhythm,
+        ),
+        Scenario(
+            "triplets",
+            "Eighth-note triplets at 120 BPM",
+            triplets,
+        ),
+        Scenario(
+            "falls",
+            "Notes ending with a 200-cent downward fall",
+            falls,
+        ),
+        Scenario(
+            "wide-vibrato",
+            "Three long notes with 80-cent, 4.8 Hz vibrato",
+            wide_vibrato,
+        ),
+        Scenario(
+            "grace-notes",
+            "Short 60 ms grace notes before each sustained note",
+            grace_notes,
+        ),
     ]
 
 
@@ -190,6 +352,12 @@ def _pitch_curve(note: dict[str, Any], length: int, sr: int) -> np.ndarray:
             * np.sin(2.0 * np.pi * vibrato_hz * time)
             * ramp
         )
+    fall_cents = float(note.get("fall_cents", 0.0))
+    fall_seconds = float(note.get("fall_seconds", 0.0))
+    if fall_cents > 0 and fall_seconds > 0:
+        fall_frames = min(length, max(1, int(fall_seconds * sr)))
+        drop = np.linspace(0.0, fall_cents / 100.0, fall_frames)
+        midi[length - fall_frames :] -= drop
     return 440.0 * 2 ** ((midi - 69.0) / 12.0)
 
 

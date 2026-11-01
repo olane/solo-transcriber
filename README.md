@@ -206,7 +206,9 @@ tuning segmentation, range or model settings; otherwise it is hard to tell
 whether a change helped.
 
 No recordings yet? Generate a deterministic smoke suite covering repeated notes,
-vibrato, chromatic runs, fast sixteenths, octave trills, scoops and bleed:
+vibrato, chromatic runs, fast sixteenths, octave trills, scoops, bleed, wide
+leaps, low and high registers, staccato, syncopation, scales, triplets, falls
+and grace notes:
 
 ```bash
 uv run python scripts/make_synthetic_benchmark.py benchmark/synthetic --instrument alto
