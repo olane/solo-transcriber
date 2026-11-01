@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -77,12 +76,10 @@ async def create_job(file: UploadFile = File(...)) -> JobOut:
         if size == 0:
             raise HTTPException(status_code=400, detail="The uploaded file is empty")
     except HTTPException:
-        manager.delete(job.id)
-        shutil.rmtree(job.dir, ignore_errors=True)
+        manager.remove(job)
         raise
     except Exception as exc:
-        manager.delete(job.id)
-        shutil.rmtree(job.dir, ignore_errors=True)
+        manager.remove(job)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     manager.start_preparation(job, upload)

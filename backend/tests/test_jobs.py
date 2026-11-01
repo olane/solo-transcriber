@@ -12,6 +12,16 @@ def test_persisted_fields_cover_every_runtime_independent_field():
     assert set(job.metadata()) == persisted
 
 
+def test_remove_forgets_the_job_and_deletes_its_files():
+    manager = JobManager()
+    job = manager.create("forget-me.wav")
+
+    manager.remove(job)
+
+    assert manager.get(job.id) is None
+    assert not job.dir.exists()
+
+
 def test_persist_round_trip_restores_every_field(tmp_path):
     manager = JobManager()
     job = manager.create("round-trip.wav")

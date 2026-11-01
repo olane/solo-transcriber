@@ -115,10 +115,6 @@ class JobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def delete(self, job_id: str) -> None:
-        with self._lock:
-            self._jobs.pop(job_id, None)
-
     def remove(self, job: Job) -> None:
         with self._lock:
             self._jobs.pop(job.id, None)
