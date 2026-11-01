@@ -143,13 +143,14 @@ def _render_notes(
     return notes_path, musicxml_path, midi_path
 
 
-def collect_results(
+def run_benchmark(
     benchmark_dir: Path | str,
     instrument: str = "alto",
     mode: str = "melody",
     mock: bool = False,
     limit: int | None = None,
 ) -> list[ScenarioResult]:
+    """Transcribe and score a benchmark, writing artifacts under predictions/."""
     benchmark = Path(benchmark_dir)
     audio_files = sorted(benchmark.glob("*.wav"))
     if not audio_files:
@@ -462,7 +463,7 @@ def build_report(
     title: str = "Transcription benchmark",
 ) -> Path:
     benchmark = Path(benchmark_dir)
-    results = collect_results(
+    results = run_benchmark(
         benchmark,
         instrument=instrument,
         mode=mode,
