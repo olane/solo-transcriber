@@ -1,0 +1,74 @@
+name: Synthetic benchmark
+
+on:
+  pull_request:
+    paths:
+      - "backend/app/**"
+      - "scripts/evaluate.py"
+      - "scripts/make_synthetic_benchmark.py"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic:
+    name: Synthetic transcription benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - name: Install project
+        run: uv sync --extra dev
+      - name: Install CPU CREPE
+        # The evaluator feeds isolated stems, so Demucs is not needed.
+        run: |
+          uv pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            "torch==2.2.2+cpu" "torchaudio==2.2.2+cpu"
+          uv pip install --no-deps "torchcrepe==0.0.24"
+          uv pip install "resampy==0.4.3" "tqdm==4.70.1"
+      - name: Generate synthetic suite
+        run: >
+          uv run --no-sync python scripts/make_synthetic_benchmark.py
+          .benchmark/synthetic --instrument alto
+      - name: Score raw notes
+        run: >
+          uv run --no-sync python scripts/evaluate.py .benchmark/synthetic
+          --instrument alto --mode melody | tee .benchmark/raw.txt
+      - name: Score rendered output
+        run: >
+          uv run --no-sync python scripts/evaluate.py .benchmark/synthetic
+          --instrument alto --mode melody --rendered | tee .benchmark/rendered.txt
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Synthetic benchmark"
+            echo
+            echo "Informational. Synthetic data only; separation is not covered."
+            echo
+            for mode in raw rendered; do
+              if [ -f ".benchmark/$mode.txt" ]; then
+                echo "### $mode"
+                echo '```'
+                grep -E 'file\(s\):|^fail ' ".benchmark/$mode.txt" || true
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: synthetic-benchmark
+          path: .benchmark/*.txt
+          if-no-files-found: ignore

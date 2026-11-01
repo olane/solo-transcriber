@@ -221,6 +221,15 @@ show up in that view, so run both when tuning engraving. Rendered estimates are
 read back at concert pitch and mapped onto the audio timeline, so references
 stay in concert pitch even when the instrument transposes.
 
+When a change can affect notes or engraving, run both modes before and after
+and put the summary lines in the PR description (the pull request template has
+a `## Benchmark` section). The `Synthetic benchmark` GitHub Actions job also
+runs the suite on PRs that touch the pipeline and writes the summary to the job
+summary; it is informational, not a required check. Neither replaces real
+recordings: the synthetic suite is a regression tripwire, and separation
+changes are not exercised because the harness feeds isolated stems straight to
+the transcriber.
+
 No recordings yet? Generate a deterministic smoke suite covering repeated notes,
 vibrato, chromatic runs, fast sixteenths, octave trills, scoops, bleed, wide
 leaps, low and high registers, staccato, syncopation, scales, triplets, falls
