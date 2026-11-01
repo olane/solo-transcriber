@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .jobs import manager
+from .jobs import RUNNING_STATUSES, manager
 from .pipeline.notation import TIME_SIGNATURES
 from .schemas import Instrument, JobOut, ScoreFormat, SectionRequest, TranscribeRequest
 
@@ -111,7 +111,7 @@ def separate(job_id: str, request: SectionRequest) -> JobOut:
     with job.lock:
         status = job.status
         duration = job.duration
-    if status in {"queued", "preparing", "separating", "transcribing"}:
+    if status in RUNNING_STATUSES:
         raise HTTPException(status_code=409, detail="This job is still running")
     if duration <= 0:
         raise HTTPException(status_code=409, detail="The audio is not ready yet")
@@ -133,7 +133,7 @@ def transcribe(job_id: str, request: TranscribeRequest) -> JobOut:
     with job.lock:
         status = job.status
         stems = list(job.stems)
-    if status in {"queued", "preparing", "separating", "transcribing"}:
+    if status in RUNNING_STATUSES:
         raise HTTPException(status_code=409, detail="This job is still running")
     if status == "awaiting_section":
         raise HTTPException(status_code=409, detail="Choose a section first")

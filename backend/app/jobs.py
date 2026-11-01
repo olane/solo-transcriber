@@ -16,9 +16,12 @@ from .pipeline.audio import make_preview, to_wav, trim_wav, wav_duration
 from .pipeline.notation import render_score, safe_title
 from .pipeline.separate import STEM_ORDER, SUGGESTED_STEM, separate_stems
 from .pipeline.transcribe import transcribe_file
-from .schemas import JobOut, SectionOut, StemOut, TranscriptionOut
+from .schemas import JobOut, JobStatus, SectionOut, StemOut, TranscriptionOut
 
 SCORE_CACHE_VERSION = "2"
+RUNNING_STATUSES: frozenset[JobStatus] = frozenset(
+    {"queued", "preparing", "separating", "transcribing"}
+)
 RUNTIME_JOB_FIELDS = frozenset({"dir", "lock"})
 
 # Stream the lossless source to the browser for normal tracks; only long files
@@ -32,7 +35,7 @@ class Job:
     filename: str
     mock: bool
     dir: Path
-    status: str = "queued"
+    status: JobStatus = "queued"
     stage: str = "Queued"
     progress: int = 0
     error: str | None = None
@@ -85,6 +88,11 @@ class Job:
             value = getattr(self, item.name)
             payload[item.name] = list(value) if isinstance(value, list) else value
         return payload
+
+    def set_phase(self, status: JobStatus, stage: str, progress: int) -> None:
+        self.status = status
+        self.stage = stage
+        self.progress = progress
 
 
 class JobManager:
@@ -194,28 +202,24 @@ class JobManager:
         job.note_count = int(metadata.get("note_count") or len(notes.get("notes") or []))
 
         if str(metadata.get("status")) == "error":
-            job.status = "error"
-            job.stage = str(metadata.get("stage") or "Something went wrong")
-            job.progress = int(metadata.get("progress") or 0)
+            job.set_phase(
+                "error",
+                str(metadata.get("stage") or "Something went wrong"),
+                int(metadata.get("progress") or 0),
+            )
             job.error = metadata.get("error")
             return job
 
         if job.bpm is not None and (job_dir / "notes.json").exists():
-            job.status = "done"
-            job.stage = "Ready to play"
-            job.progress = 100
+            job.set_phase("done", "Ready to play", 100)
         elif (
             job.section_start is not None
             and job.section_end is not None
             and job.stems
         ):
-            job.status = "awaiting_stem"
-            job.stage = "Pick the sax stem"
-            job.progress = 55
+            job.set_phase("awaiting_stem", "Pick the sax stem", 55)
         else:
-            job.status = "awaiting_section"
-            job.stage = "Choose the solo section"
-            job.progress = 10
+            job.set_phase("awaiting_section", "Choose the solo section", 10)
             job.bpm = None
             job.note_count = 0
             job.transcription_duration = 0.0
@@ -295,17 +299,13 @@ class JobManager:
 
     def start_preparation(self, job: Job, upload: Path) -> None:
         with job.lock:
-            job.status = "preparing"
-            job.stage = "Preparing the audio"
-            job.progress = 5
+            job.set_phase("preparing", "Preparing the audio", 5)
         self.persist(job)
         self._executor.submit(self._prepare_worker, job, upload)
 
     def start_section_separation(self, job: Job, start: float, end: float) -> None:
         with job.lock:
-            job.status = "separating"
-            job.stage = "Separating the section"
-            job.progress = 15
+            job.set_phase("separating", "Separating the section", 15)
             job.section_start = start
             job.section_end = end
             job.stems = []
@@ -325,9 +325,7 @@ class JobManager:
         self, job: Job, stem: str, instrument: str, mode: str
     ) -> None:
         with job.lock:
-            job.status = "transcribing"
-            job.stage = "Transcribing the sax line"
-            job.progress = 65
+            job.set_phase("transcribing", "Transcribing the sax line", 65)
             job.selected_stem = stem
             job.transcription_instrument = instrument
             job.transcription_mode = mode
@@ -375,10 +373,10 @@ class JobManager:
     def _fail(self, job: Job, exc: Exception) -> None:
         traceback.print_exc()
         with job.lock:
-            job.status = "error"
-            job.stage = "Something went wrong"
+            job.set_phase(
+                "error", "Something went wrong", min(job.progress, 99)
+            )
             job.error = str(exc) or exc.__class__.__name__
-            job.progress = min(job.progress, 99)
         self.persist(job)
 
     def _prepare_worker(self, job: Job, upload: Path) -> None:
@@ -394,9 +392,7 @@ class JobManager:
                     traceback.print_exc()
             with job.lock:
                 job.duration = duration
-                job.status = "awaiting_section"
-                job.stage = "Choose the solo section"
-                job.progress = 10
+                job.set_phase("awaiting_section", "Choose the solo section", 10)
             self.persist(job)
             upload.unlink(missing_ok=True)
         except Exception as exc:
@@ -422,9 +418,7 @@ class JobManager:
             stems = separate_stems(section, job.dir, mock=job.mock)
             with job.lock:
                 job.stems = stems
-                job.status = "awaiting_stem"
-                job.stage = "Pick the sax stem"
-                job.progress = 55
+                job.set_phase("awaiting_stem", "Pick the sax stem", 55)
             self.persist(job)
         except Exception as exc:
             self._fail(job, exc)
@@ -463,9 +457,7 @@ class JobManager:
                 job.transcription_instrument = instrument
                 job.transcription_mode = mode
                 job.transcription_mock = bool(meta["mock"])
-                job.status = "done"
-                job.stage = "Ready to play"
-                job.progress = 100
+                job.set_phase("done", "Ready to play", 100)
                 job.error = None
             self.persist(job)
         except Exception as exc:

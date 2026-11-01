@@ -3,6 +3,7 @@ import {
   createJob,
   deleteJob,
   getJob,
+  isRunning,
   listJobs,
   scoreUrl,
   separateSection,
@@ -99,15 +100,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (
-      !job ||
-      job.status === "done" ||
-      job.status === "error" ||
-      job.status === "awaiting_stem" ||
-      job.status === "awaiting_section"
-    ) {
-      return;
-    }
+    if (!job || !isRunning(job.status)) return;
     const timer = window.setInterval(() => {
       getJob(job.id)
         .then(setJob)
@@ -265,11 +258,7 @@ export function App() {
     void refreshSaved();
   }
 
-  const busy =
-    uploading ||
-    job?.status === "preparing" ||
-    job?.status === "separating" ||
-    job?.status === "transcribing";
+  const busy = uploading || (job !== null && isRunning(job.status));
   const showPicker = Boolean(
     job &&
       job.duration > 0 &&
