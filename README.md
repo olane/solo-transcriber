@@ -215,9 +215,11 @@ re-articulated notes survive segmentation. Both are hidden by the pitch
 F-measure alone.
 
 By default the script scores the raw note events. Add `--rendered` to render
-the transcription through the notation pipeline and score the quantised
-MusicXML a user would actually export. Quantisation, ties, bar placement and
-rests only show up in that view, so run both when tuning engraving.
+the transcription through the notation pipeline and score the quantised score
+a user would actually export. Quantisation, ties, bar placement and rests only
+show up in that view, so run both when tuning engraving. Rendered estimates are
+read back at concert pitch and mapped onto the audio timeline, so references
+stay in concert pitch even when the instrument transposes.
 
 No recordings yet? Generate a deterministic smoke suite covering repeated notes,
 vibrato, chromatic runs, fast sixteenths, octave trills, scoops, bleed, wide

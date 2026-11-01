@@ -148,3 +148,20 @@ def test_render_estimate_round_trips_through_notation():
     assert [item["pitch"] for item in rendered] == [60, 62, 64, 65]
     for original, result in zip(notes, rendered):
         assert result["start"] == pytest.approx(original["start"], abs=0.03)
+
+
+def test_render_estimate_keeps_concert_pitch_and_audio_time():
+    from app.evaluation import render_estimate
+
+    notes = [
+        {"start": 0.45, "end": 0.72, "pitch": 65, "velocity": 100},
+        {"start": 0.73, "end": 1.00, "pitch": 65, "velocity": 100},
+        {"start": 1.01, "end": 1.28, "pitch": 65, "velocity": 100},
+        {"start": 1.29, "end": 1.56, "pitch": 67, "velocity": 100},
+    ]
+
+    rendered = render_estimate(notes, 107.3, "alto", "4/4", 0.209)
+
+    assert [item["pitch"] for item in rendered] == [65, 65, 65, 67]
+    for original, result in zip(notes, rendered):
+        assert result["start"] == pytest.approx(original["start"], abs=0.06)
