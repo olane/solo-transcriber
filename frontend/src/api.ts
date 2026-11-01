@@ -1,5 +1,7 @@
 export type JobStatus =
   | "queued"
+  | "preparing"
+  | "awaiting_section"
   | "separating"
   | "awaiting_stem"
   | "transcribing"
@@ -13,6 +15,11 @@ export type Stem = {
   name: string;
   url: string;
   suggested: boolean;
+};
+
+export type Section = {
+  start: number;
+  end: number;
 };
 
 export type Transcription = {
@@ -33,6 +40,8 @@ export type Job = {
   duration: number;
   stems: Stem[];
   selected_stem: string | null;
+  section: Section | null;
+  preview_url: string | null;
   transcription: Transcription | null;
   mock: boolean;
 };
@@ -60,6 +69,20 @@ export async function createJob(file: File): Promise<Job> {
 
 export async function getJob(id: string): Promise<Job> {
   return parse<Job>(await fetch(`/api/jobs/${id}`));
+}
+
+export async function separateSection(
+  id: string,
+  start: number,
+  end: number,
+): Promise<Job> {
+  return parse<Job>(
+    await fetch(`/api/jobs/${id}/separate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ start, end }),
+    }),
+  );
 }
 
 export async function transcribe(id: string, stem: string): Promise<Job> {

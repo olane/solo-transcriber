@@ -3,11 +3,13 @@ import {
   createJob,
   getJob,
   scoreUrl,
+  separateSection,
   transcribe,
   type Instrument,
   type Job,
 } from "./api";
 import { ScoreView } from "./ScoreView";
+import { SectionPicker } from "./SectionPicker";
 
 const INSTRUMENTS: { value: Instrument; label: string }[] = [
   { value: "alto", label: "Alto sax (Eb)" },
@@ -34,6 +36,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [editingSection, setEditingSection] = useState(false);
   const [instrument, setInstrument] = useState<Instrument>("alto");
   const [timeSignature, setTimeSignature] = useState("4/4");
   const [bpm, setBpm] = useState<number | null>(null);
@@ -48,7 +51,8 @@ export function App() {
       !job ||
       job.status === "done" ||
       job.status === "error" ||
-      job.status === "awaiting_stem"
+      job.status === "awaiting_stem" ||
+      job.status === "awaiting_section"
     ) {
       return;
     }
@@ -97,6 +101,7 @@ export function App() {
     setScoreError(null);
     setBpm(null);
     setBpmDraft("");
+    setEditingSection(false);
     try {
       setJob(await createJob(file));
     } catch (err) {
@@ -120,6 +125,22 @@ export function App() {
     }
   }
 
+  async function handleSection(start: number, end: number) {
+    if (!job) return;
+    setError(null);
+    setScoreXml("");
+    setScoreError(null);
+    setBpm(null);
+    setBpmDraft("");
+    try {
+      setJob(await separateSection(job.id, start, end));
+      setEditingSection(false);
+    } catch (err) {
+      setError(message(err));
+      throw err;
+    }
+  }
+
   function commitBpm() {
     const value = Number(bpmDraft);
     if (Number.isFinite(value) && value >= 20 && value <= 400) {
@@ -137,9 +158,22 @@ export function App() {
     setBpm(null);
     setBpmDraft("");
     setUploading(false);
+    setEditingSection(false);
   }
 
-  const busy = uploading || job?.status === "separating" || job?.status === "transcribing";
+  const busy =
+    uploading ||
+    job?.status === "preparing" ||
+    job?.status === "separating" ||
+    job?.status === "transcribing";
+  const showPicker = Boolean(
+    job &&
+      job.duration > 0 &&
+      (job.status === "awaiting_section" || editingSection),
+  );
+  const sectionLabel = job?.section
+    ? `${clock(job.section.start)} - ${clock(job.section.end)}`
+    : null;
 
   return (
     <div className="page">
@@ -179,7 +213,7 @@ export function App() {
           />
           <div className="drop-icon">♫</div>
           <h2>{uploading ? "Uploading..." : "Drop an audio file"}</h2>
-          <p>MP3, WAV, M4A, FLAC or OGG. Stays on your machine.</p>
+          <p>MP3, WAV, M4A, FLAC or OGG. You will pick the solo section next.</p>
           <button
             className="primary"
             type="button"
@@ -209,6 +243,18 @@ export function App() {
             </div>
             <div className="head-actions">
               {job.mock && <span className="badge">Demo mode</span>}
+              {job.duration > 0 &&
+                job.status !== "awaiting_section" &&
+                !editingSection && (
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => setEditingSection(true)}
+                >
+                  Change section
+                </button>
+              )}
               <button type="button" className="ghost" onClick={reset}>
                 New track
               </button>
@@ -219,13 +265,29 @@ export function App() {
             <div className="status-row">
               <span>{job.stage}</span>
               <span className="muted">
-                {job.duration ? `${Math.round(job.duration)}s` : ""}
+                {sectionLabel
+                  ? `Section ${sectionLabel}`
+                  : job.duration
+                    ? `${Math.round(job.duration)}s`
+                    : ""}
               </span>
             </div>
             <div className="track">
               <div className="fill" style={{ width: `${job.progress}%` }} />
             </div>
           </div>
+
+          {showPicker && job && (
+            <SectionPicker
+              url={job.preview_url ?? `/media/jobs/${job.id}/source.wav`}
+              duration={job.duration}
+              initialStart={job.section?.start ?? 0}
+              initialEnd={job.section?.end ?? job.duration}
+              canCancel={job.status !== "awaiting_section"}
+              onConfirm={handleSection}
+              onCancel={() => setEditingSection(false)}
+            />
+          )}
 
           {job.status === "awaiting_stem" && (
             <div className="notice">
@@ -292,8 +354,8 @@ export function App() {
                   </h2>
                   <div className="muted">
                     {job.transcription.first_note > 0.5
-                      ? `Sax enters at ${clock(job.transcription.first_note)}; the score starts from there`
-                      : "The score starts at the first note"}
+                      ? `Sax enters ${clock(job.transcription.first_note)} into the section; the score starts there`
+                      : "The score starts at the first note in the section"}
                   </div>
                 </div>
                 <div className="downloads">
