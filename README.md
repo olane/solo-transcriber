@@ -19,10 +19,13 @@ choose the solo section (start / end)
 trim  ->  Demucs (htdemucs_6s)  ->  vocals / drums / bass / guitar / piano / other
    |                                  (the sax is usually in "other")
    v
-stem audition + selection
+stem audition + selection + your sax type
    |
    v
-Basic Pitch  ->  note events (concert pitch)
+CREPE melody tracking (default) or Basic Pitch
+   |
+   v
+note events in the sax's concert range
    |
    v
 music21  ->  quantized score, key + tempo, MusicXML / MIDI
@@ -81,6 +84,7 @@ ST_MOCK=1 uv run uvicorn app.main:app --app-dir backend --reload --port 8000
 | `ST_MOCK` | off | Use the fake separation/transcription path |
 | `ST_DEMUCS_MODEL` | `htdemucs_6s` | Any Demucs model name |
 | `ST_DEVICE` | `auto` | `auto`, `mps`, `cuda` or `cpu` |
+| `ST_CREPE_MODEL` | `tiny` | `tiny` (fast) or `full` (slower, more accurate) |
 | `ST_MAX_UPLOAD_MB` | `300` | Upload limit |
 
 ## API
@@ -93,7 +97,8 @@ ST_MOCK=1 uv run uvicorn app.main:app --app-dir backend --reload --port 8000
 | `POST` | `/api/jobs/{id}/transcribe` | Transcribe `other`, another stem, or `original` |
 | `GET` | `/api/jobs/{id}/score` | Render `musicxml` or `midi` for an instrument |
 
-Score query parameters: `instrument=alto|tenor|bari|soprano|concert`,
+The transcribe body takes `stem`, `instrument` (`alto|tenor|bari|soprano|concert`)
+and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
 `time_signature=4/4|3/4|2/4|6/8`, `bpm`, `format=musicxml|midi`.
 
 ## Accuracy and limits
@@ -103,8 +108,13 @@ Score query parameters: `instrument=alto|tenor|bari|soprano|concert`,
   recording can be transcribed directly with "original mix".
 - Select only the solo section first. It makes separation much faster and
   stops long intros, outros and other solos from confusing the transcription.
-- Basic Pitch is instrument-agnostic and monophonic-friendly, but fast runs,
-  growls and vibrato produce wrong rhythms or octaves. Clean up in MuseScore.
+- **Melody mode** (default) uses CREPE to follow the dominant single line and
+  limits detection to your sax's concert range. It is much cleaner on a
+  saxophone stem than polyphonic transcription.
+- **Basic Pitch mode** tries to transcribe every pitched note in the stem. Use it
+  when the sax is buried, or as an A/B comparison.
+- Fast runs, growls and vibrato still produce wrong rhythms or octaves. Clean up
+  in MuseScore; the half/double tempo buttons can fix a doubling grid.
 - Tempo comes from beat tracking on the mix; swing and rubato may need a manual
   BPM. Time signature defaults to 4/4.
 - Pitch bends are detected but not engraved.
@@ -124,6 +134,14 @@ uv pip install 'setuptools<81'
 Then restart the server. A fresh `uv sync --extra ml --extra dev` installs it
 automatically.
 
+`Melody mode needs torchcrepe` means the venv predates melody mode. Run:
+
+```bash
+uv sync --extra ml --extra dev
+```
+
+and restart.
+
 ## Project layout
 
 ```
@@ -133,7 +151,8 @@ backend/app/
   pipeline/
     audio.py           ffmpeg decode, duration, BPM
     separate.py        Demucs stem separation
-    transcribe.py      Basic Pitch note events, mono cleanup
+    melody.py          CREPE monophonic melody tracking
+    transcribe.py      melody / Basic Pitch dispatch, range filter, mono cleanup
     notation.py        music21 score building and transposition
 backend/tests/         notation + mock pipeline tests
 frontend/src/          React UI, OSMD score viewer
