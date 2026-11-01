@@ -7,7 +7,7 @@ import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from .pipeline.transcribe import transcribe_file
 from .schemas import JobOut, SectionOut, StemOut, TranscriptionOut
 
 SCORE_CACHE_VERSION = "2"
+RUNTIME_JOB_FIELDS = frozenset({"dir", "lock"})
 
 # Stream the lossless source to the browser for normal tracks; only long files
 # get a compressed audition copy.
@@ -74,6 +75,16 @@ class Job:
         if stem == "original":
             return self.mix_wav
         return self.dir / "stems" / f"{stem}.wav"
+
+    def metadata(self) -> dict[str, Any]:
+        """Return the JSON-serialisable fields, excluding runtime-only state."""
+        payload: dict[str, Any] = {}
+        for item in fields(self):
+            if item.name in RUNTIME_JOB_FIELDS:
+                continue
+            value = getattr(self, item.name)
+            payload[item.name] = list(value) if isinstance(value, list) else value
+        return payload
 
 
 class JobManager:
@@ -217,26 +228,7 @@ class JobManager:
             with job.lock:
                 payload: dict[str, Any] = {
                     "version": 1,
-                    "id": job.id,
-                    "filename": job.filename,
-                    "mock": job.mock,
-                    "created_at": job.created_at,
-                    "status": job.status,
-                    "stage": job.stage,
-                    "progress": job.progress,
-                    "error": job.error,
-                    "duration": job.duration,
-                    "section_start": job.section_start,
-                    "section_end": job.section_end,
-                    "stems": list(job.stems),
-                    "selected_stem": job.selected_stem,
-                    "bpm": job.bpm,
-                    "note_count": job.note_count,
-                    "transcription_duration": job.transcription_duration,
-                    "transcription_first_note": job.transcription_first_note,
-                    "transcription_instrument": job.transcription_instrument,
-                    "transcription_mode": job.transcription_mode,
-                    "transcription_mock": job.transcription_mock,
+                    **job.metadata(),
                 }
             path = job.metadata_path
             temp = path.with_suffix(".json.tmp")
