@@ -23,16 +23,13 @@ const INSTRUMENTS: { value: Instrument; label: string }[] = [
   { value: "concert", label: "Concert pitch" },
 ];
 
-const SAX_OPTIONS: { value: SaxType; label: string }[] = [
-  { value: "alto", label: "Alto sax (Eb)" },
-  { value: "tenor", label: "Tenor sax (Bb)" },
-  { value: "bari", label: "Baritone sax (Eb)" },
-  { value: "soprano", label: "Soprano sax (Bb)" },
-];
-
 const TIME_SIGNATURES = ["4/4", "3/4", "2/4", "6/8"];
 
 type SaxType = Exclude<Instrument, "concert">;
+
+const SAX_OPTIONS: { value: SaxType; label: string }[] = INSTRUMENTS.filter(
+  (item): item is { value: SaxType; label: string } => item.value !== "concert",
+);
 
 function instrumentLabel(value: string): string {
   return INSTRUMENTS.find((item) => item.value === value)?.label ?? value;
@@ -95,6 +92,13 @@ export function App() {
   const [scoreLoading, setScoreLoading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  function resetScoreState() {
+    setScoreXml("");
+    setScoreError(null);
+    setBpm(null);
+    setBpmDraft("");
+  }
+
   useEffect(() => {
     void refreshSaved();
   }, []);
@@ -142,10 +146,7 @@ export function App() {
     setUploading(true);
     setError(null);
     setJob(null);
-    setScoreXml("");
-    setScoreError(null);
-    setBpm(null);
-    setBpmDraft("");
+    resetScoreState();
     setEditingSection(false);
     try {
       setJob(await createJob(file));
@@ -159,10 +160,7 @@ export function App() {
   async function handleStem(stem: string) {
     if (!job) return;
     setError(null);
-    setScoreXml("");
-    setScoreError(null);
-    setBpm(null);
-    setBpmDraft("");
+    resetScoreState();
     setInstrument(saxType);
     try {
       setJob(await transcribe(job.id, stem, saxType, method));
@@ -174,10 +172,7 @@ export function App() {
   async function handleSection(start: number, end: number) {
     if (!job) return;
     setError(null);
-    setScoreXml("");
-    setScoreError(null);
-    setBpm(null);
-    setBpmDraft("");
+    resetScoreState();
     try {
       setJob(await separateSection(job.id, start, end));
       setEditingSection(false);
@@ -198,10 +193,7 @@ export function App() {
   function openJob(item: Job) {
     setJob(item);
     setError(null);
-    setScoreXml("");
-    setScoreError(null);
-    setBpm(null);
-    setBpmDraft("");
+    resetScoreState();
     setEditingSection(false);
     const instrument = item.transcription?.instrument;
     if (instrument && instrument !== "concert") {
@@ -249,10 +241,7 @@ export function App() {
   function reset() {
     setJob(null);
     setError(null);
-    setScoreXml("");
-    setScoreError(null);
-    setBpm(null);
-    setBpmDraft("");
+    resetScoreState();
     setUploading(false);
     setEditingSection(false);
     void refreshSaved();
