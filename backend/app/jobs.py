@@ -14,7 +14,7 @@ from typing import Any
 from . import config
 from .pipeline.audio import make_preview, to_wav, trim_wav, wav_duration
 from .pipeline.notation import render_score, safe_title
-from .pipeline.separate import STEM_ORDER, SUGGESTED_STEM, separate_stems
+from .pipeline.separate import SUGGESTED_STEM, order_stems, separate_stems
 from .pipeline.transcribe import transcribe_file
 from .schemas import JobOut, JobStatus, SectionOut, StemOut, TranscriptionOut
 
@@ -513,10 +513,7 @@ def _stems_on_disk(job_dir: Path) -> list[str]:
     stems_dir = job_dir / "stems"
     if not stems_dir.is_dir():
         return []
-    found = {path.stem for path in stems_dir.glob("*.wav")}
-    ordered = [name for name in STEM_ORDER if name in found]
-    ordered += sorted(found - set(ordered))
-    return ordered
+    return order_stems(path.stem for path in stems_dir.glob("*.wav"))
 
 
 manager = JobManager()

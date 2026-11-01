@@ -4,12 +4,21 @@ import importlib.util
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 from .. import config
 
 STEM_ORDER = ["vocals", "drums", "bass", "guitar", "piano", "other"]
 SUGGESTED_STEM = "other"
+
+
+def order_stems(names: Iterable[str]) -> list[str]:
+    """Order stem names by STEM_ORDER, then alphabetically for extras."""
+    found = set(names)
+    ordered = [name for name in STEM_ORDER if name in found]
+    ordered += sorted(found - set(ordered))
+    return ordered
 
 
 def pick_device(requested: str = "auto") -> str:
@@ -29,7 +38,7 @@ def pick_device(requested: str = "auto") -> str:
 
 def _copy_mock_stems(source: Path, stems_dir: Path) -> list[str]:
     stems_dir.mkdir(parents=True, exist_ok=True)
-    names = ["other", "vocals", "bass"]
+    names = order_stems(["other", "vocals", "bass"])
     for name in names:
         shutil.copyfile(source, stems_dir / f"{name}.wav")
     return names
@@ -90,8 +99,7 @@ def separate_stems(source_wav: Path, workdir: Path, mock: bool = False) -> list[
         raise RuntimeError("Demucs did not produce any stems")
 
     stems_dir.mkdir(parents=True, exist_ok=True)
-    ordered = [name for name in STEM_ORDER if name in found]
-    ordered += sorted(name for name in found if name not in STEM_ORDER)
+    ordered = order_stems(found)
     for name in ordered:
         shutil.copyfile(found[name], stems_dir / f"{name}.wav")
     return ordered

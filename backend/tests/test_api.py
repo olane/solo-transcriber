@@ -141,7 +141,7 @@ def test_saved_jobs_are_listed_and_restored(tmp_path):
     assert snapshot.section is not None
     assert snapshot.section.start == 0.25
     assert snapshot.section.end == 2.5
-    assert [stem.name for stem in snapshot.stems] == ["other", "vocals", "bass"]
+    assert [stem.name for stem in snapshot.stems] == ["vocals", "bass", "other"]
     assert snapshot.transcription is not None
     assert snapshot.transcription.instrument == "tenor"
     assert snapshot.transcription.note_count > 0
