@@ -301,14 +301,21 @@ def _note_table(notes: list[NoteEvent]) -> str:
 def _metrics_html(metrics: dict[str, float], has_reference: bool) -> str:
     if not has_reference:
         return '<span class="pill muted">No reference</span>'
+    onset = metrics.get("Onset_F-measure", 0.0)
+    pitch = metrics.get("F-measure_no_offset", 0.0)
+    full = metrics.get("F-measure", 0.0)
+    repeat = metrics.get("Repeated_Note_Recall", 1.0)
+    octave = metrics.get("Octave_Error_Rate", 0.0)
     items = (
-        ("Onset", metrics.get("Onset_F-measure", 0.0)),
-        ("Pitch", metrics.get("F-measure_no_offset", 0.0)),
-        ("Full", metrics.get("F-measure", 0.0)),
+        ("Onset", onset, onset),
+        ("Pitch", pitch, pitch),
+        ("Full", full, full),
+        ("Repeat", repeat, repeat),
+        ("Octave err", octave, 1.0 - octave),
     )
     return "".join(
-        f'<span class="pill {_metric_class(value)}">{label} {value:.3f}</span>'
-        for label, value in items
+        f'<span class="pill {_metric_class(display)}">{label} {value:.3f}</span>'
+        for label, value, display in items
     )
 
 
@@ -425,6 +432,12 @@ def _summary_html(results: list[ScenarioResult]) -> str:
         result.metrics.get("F-measure_no_offset", 0.0) for result in scored
     ) / len(scored)
     full = sum(result.metrics.get("F-measure", 0.0) for result in scored) / len(scored)
+    repeat = sum(
+        result.metrics.get("Repeated_Note_Recall", 1.0) for result in scored
+    ) / len(scored)
+    octave = sum(
+        result.metrics.get("Octave_Error_Rate", 0.0) for result in scored
+    ) / len(scored)
     errors = sum(1 for result in results if result.error)
     error_pill = (
         f'<span class="pill bad">{errors} error(s)</span>' if errors else ""
@@ -434,6 +447,8 @@ def _summary_html(results: list[ScenarioResult]) -> str:
             f'<span class="pill {_metric_class(onset)}">Onset F {onset:.3f}</span>',
             f'<span class="pill {_metric_class(pitch)}">Pitch F {pitch:.3f}</span>',
             f'<span class="pill {_metric_class(full)}">Full F {full:.3f}</span>',
+            f'<span class="pill {_metric_class(repeat)}">Repeat R {repeat:.3f}</span>',
+            f'<span class="pill {_metric_class(1.0 - octave)}">Octave err {octave:.3f}</span>',
             error_pill,
         )
     )

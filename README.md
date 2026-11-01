@@ -207,10 +207,17 @@ MuseScore, and export it as MIDI beside the source audio:
 uv run python scripts/evaluate.py path/to/dataset --instrument alto --mode melody
 ```
 
-It prints onset, pitch and full-note F-measures per file and a mean summary, and
-`--json metrics.json` writes the same data for tracking changes. Use this before
-tuning segmentation, range or model settings; otherwise it is hard to tell
-whether a change helped.
+It prints onset, pitch and full-note F-measures plus an octave-error rate and
+repeated-note recall per file and a mean summary, and `--json metrics.json`
+writes the same data for tracking changes. The octave rate counts matched
+onsets whose pitch is off by whole octaves; the repeat recall checks whether
+re-articulated notes survive segmentation. Both are hidden by the pitch
+F-measure alone.
+
+By default the script scores the raw note events. Add `--rendered` to render
+the transcription through the notation pipeline and score the quantised
+MusicXML a user would actually export. Quantisation, ties, bar placement and
+rests only show up in that view, so run both when tuning engraving.
 
 No recordings yet? Generate a deterministic smoke suite covering repeated notes,
 vibrato, chromatic runs, fast sixteenths, octave trills, scoops, bleed, wide

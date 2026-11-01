@@ -80,3 +80,71 @@ def test_load_midi_reference(tmp_path):
     assert [item["pitch"] for item in loaded] == [60, 62, 64]
     assert loaded[1]["start"] == pytest.approx(0.5, abs=0.02)
     assert loaded[2]["start"] == pytest.approx(1.0, abs=0.02)
+
+
+def test_octave_errors_are_reported():
+    from app.evaluation import octave_error_stats
+
+    estimate = [dict(note, pitch=note["pitch"] + 12) for note in NOTES]
+
+    rate, errors, matched = octave_error_stats(NOTES, estimate)
+
+    assert matched == 3
+    assert errors == 3
+    assert rate == pytest.approx(1.0)
+
+
+def test_octave_errors_ignore_non_octave_mistakes():
+    from app.evaluation import octave_error_stats
+
+    estimate = [dict(note, pitch=note["pitch"] + 1) for note in NOTES]
+
+    rate, errors, _ = octave_error_stats(NOTES, estimate)
+
+    assert errors == 0
+    assert rate == pytest.approx(0.0)
+
+
+def test_repeated_note_stats_measure_rearticulation_recall():
+    from app.evaluation import repeated_note_stats
+
+    reference = [
+        {"start": 0.0, "end": 0.4, "pitch": 60},
+        {"start": 0.5, "end": 0.9, "pitch": 60},
+        {"start": 1.0, "end": 1.4, "pitch": 60},
+    ]
+    estimate = [
+        {"start": 0.0, "end": 0.4, "pitch": 60},
+        {"start": 0.5, "end": 1.4, "pitch": 60},
+    ]
+
+    recall, count = repeated_note_stats(reference, estimate)
+
+    assert count == 2
+    assert recall == pytest.approx(0.5)
+
+
+def test_repeated_note_stats_are_vacuous_without_repeats():
+    from app.evaluation import repeated_note_stats
+
+    recall, count = repeated_note_stats(NOTES, NOTES)
+
+    assert count == 0
+    assert recall == pytest.approx(1.0)
+
+
+def test_render_estimate_round_trips_through_notation():
+    from app.evaluation import render_estimate
+
+    notes = [
+        {"start": 0.0, "end": 0.5, "pitch": 60},
+        {"start": 0.5, "end": 1.0, "pitch": 62},
+        {"start": 1.0, "end": 1.5, "pitch": 64},
+        {"start": 1.5, "end": 2.0, "pitch": 65},
+    ]
+
+    rendered = render_estimate(notes, 120.0, "concert", "4/4", 0.0)
+
+    assert [item["pitch"] for item in rendered] == [60, 62, 64, 65]
+    for original, result in zip(notes, rendered):
+        assert result["start"] == pytest.approx(original["start"], abs=0.03)
