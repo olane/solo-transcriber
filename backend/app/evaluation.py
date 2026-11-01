@@ -214,23 +214,36 @@ def render_estimate(
     instrument: str,
     time_signature: str = "4/4",
     bar_offset: float | None = None,
-    fmt: str = "musicxml",
+    fmt: str = "midi",
 ) -> list[NoteEvent]:
     """Render notes through the notation pipeline and read them back.
 
     This is the end-to-end view a user actually exports: quantisation, ties,
     bar placement and rests are all applied. Scores obtained this way can
     disagree with the raw note events, which is exactly what we want to catch.
+
+    Two details make the result comparable with a reference in audio time:
+
+    - MIDI is used by default because it is read back at sounding pitch. A
+      MusicXML part for a transposing sax carries written pitch.
+    - The score starts at the barline before the first note, so the origin is
+      added back to map rendered times onto the input timeline.
     """
     import tempfile
 
-    from .pipeline.notation import render_score
+    from .pipeline.notation import normalize_notes, render_score
+
+    normalized = normalize_notes(notes)
+    if not normalized:
+        return []
+    first_note = float(normalized[0]["start"])
+    origin = first_note if bar_offset is None else min(float(bar_offset), first_note)
 
     suffix = ".mid" if fmt == "midi" else ".musicxml"
     with tempfile.TemporaryDirectory(prefix="st-eval-") as directory:
         path = Path(directory) / f"estimate{suffix}"
         render_score(
-            notes,
+            normalized,
             bpm,
             instrument,
             time_signature,
@@ -239,7 +252,11 @@ def render_estimate(
             path,
             bar_offset=bar_offset,
         )
-        return load_reference_notes(path)
+        rendered = load_reference_notes(path)
+    for item in rendered:
+        item["start"] = float(item["start"]) + origin
+        item["end"] = float(item["end"]) + origin
+    return rendered
 
 
 def _load_json_notes(path: Path) -> list[NoteEvent]:
