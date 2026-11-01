@@ -7,11 +7,11 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import Template
-from typing import Any
 
 from .evaluation import evaluate_notes, find_reference, load_reference_notes
 from .pipeline.audio import wav_duration
 from .pipeline.notation import render_score, safe_title
+from .pipeline.notes import NoteEvent
 from .pipeline.transcribe import transcribe_file
 
 NOTE_NAMES = (
@@ -42,8 +42,8 @@ class ScenarioResult:
     audio_path: Path
     duration: float
     bpm: float | None = None
-    reference: list[dict[str, Any]] = field(default_factory=list)
-    predicted: list[dict[str, Any]] = field(default_factory=list)
+    reference: list[NoteEvent] = field(default_factory=list)
+    predicted: list[NoteEvent] = field(default_factory=list)
     metrics: dict[str, float] = field(default_factory=dict)
     notes_path: Path | None = None
     musicxml_path: Path | None = None
@@ -105,7 +105,9 @@ def _osmd_source(report_dir: Path) -> str:
     return OSMD_CDN
 
 
-def _pitch_bounds(reference: list[dict], predicted: list[dict]) -> tuple[int, int]:
+def _pitch_bounds(
+    reference: list[NoteEvent], predicted: list[NoteEvent]
+) -> tuple[int, int]:
     pitches = [int(note["pitch"]) for note in reference + predicted]
     if not pitches:
         return 48, 84
@@ -113,7 +115,7 @@ def _pitch_bounds(reference: list[dict], predicted: list[dict]) -> tuple[int, in
 
 
 def _render_notes(
-    notes: list[dict[str, Any]],
+    notes: list[NoteEvent],
     bpm: float,
     instrument: str,
     title: str,
@@ -163,7 +165,7 @@ def collect_results(
         name = audio.stem
         duration = wav_duration(audio)
         reference_path = find_reference(audio)
-        reference: list[dict[str, Any]] = []
+        reference: list[NoteEvent] = []
         if reference_path is not None:
             try:
                 reference = load_reference_notes(reference_path)
@@ -240,7 +242,7 @@ def collect_results(
     return results
 
 
-def _note_table(notes: list[dict[str, Any]]) -> str:
+def _note_table(notes: list[NoteEvent]) -> str:
     if not notes:
         return '<p class="muted">No notes.</p>'
     rows = []

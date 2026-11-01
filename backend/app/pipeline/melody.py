@@ -7,6 +7,8 @@ import librosa
 import numpy as np
 from scipy.ndimage import median_filter
 
+from .notes import NoteEvent
+
 HOP_LENGTH = 160
 SAMPLE_RATE = 16000
 MIN_NOTE_SECONDS = 0.06
@@ -260,7 +262,7 @@ def transcribe_melody(
     fmin: float,
     fmax: float,
     model: str = "tiny",
-) -> list[dict[str, Any]]:
+) -> list[NoteEvent]:
     """Follow the dominant monophonic line with CREPE and segment it into notes."""
     import torch
     import torchcrepe
@@ -290,7 +292,7 @@ def transcribe_melody(
 
     rms = librosa.feature.rms(y=audio, frame_length=400, hop_length=HOP_LENGTH)[0]
     loudness = float(np.percentile(rms, 90)) or 1.0
-    notes: list[dict[str, Any]] = []
+    notes: list[NoteEvent] = []
     for start_frame, end_frame, pitch in segments:
         start = float(times[start_frame])
         end = float(times[end_frame] + HOP_LENGTH / sr)

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import NotRequired, TypedDict
 
 SAME_ONSET_SECONDS = 0.001
 
 
-def sort_and_dedupe(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+class NoteEvent(TypedDict):
+    start: float
+    end: float
+    pitch: float
+    velocity: NotRequired[int]
+    bend: NotRequired[list[int] | None]
+
+
+def sort_and_dedupe(notes: list[NoteEvent]) -> list[NoteEvent]:
     """Order note events by onset and keep the strongest attack per onset."""
     ordered = sorted(
         notes,
@@ -14,7 +22,7 @@ def sort_and_dedupe(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             -int(note.get("velocity", 80)),
         ),
     )
-    deduped: list[dict[str, Any]] = []
+    deduped: list[NoteEvent] = []
     for note in ordered:
         if (
             deduped

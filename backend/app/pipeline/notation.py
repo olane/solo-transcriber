@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 from music21 import clef, instrument, key, metadata, meter, note, pitch, stream, tempo
 
-from .notes import sort_and_dedupe
+from .notes import NoteEvent, sort_and_dedupe
 
 INSTRUMENTS = {
     "concert": instrument.Saxophone,
@@ -40,7 +39,7 @@ def _grid_error(offsets: list[float], divisors: tuple[int, ...]) -> float:
 
 
 def _quantization_divisors(
-    normalized: list[dict[str, Any]], seconds_per_quarter: float
+    normalized: list[NoteEvent], seconds_per_quarter: float
 ) -> tuple[int, ...]:
     """Prefer a straight grid unless triplets clearly explain the onsets.
 
@@ -94,7 +93,7 @@ def _legal_key(part, analyzed_key, instrument_key: str):
     return target
 
 
-def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_notes(notes: list[NoteEvent]) -> list[NoteEvent]:
     cleaned = [
         dict(note)
         for note in notes
@@ -133,7 +132,7 @@ def _pad_final_measure(part, bar_quarter_length: float) -> None:
 
 
 def build_score(
-    notes: list[dict[str, Any]],
+    notes: list[NoteEvent],
     bpm: float,
     instrument_key: str = "alto",
     time_signature: str = "4/4",
@@ -206,7 +205,7 @@ def safe_title(title: str) -> str:
 
 
 def render_score(
-    notes: list[dict[str, Any]],
+    notes: list[NoteEvent],
     bpm: float,
     instrument_key: str,
     time_signature: str,
