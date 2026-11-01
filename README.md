@@ -126,6 +126,11 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
   limits detection to your sax's concert range. Note attacks start a new note
   even when the pitch is unchanged, so repeated notes are preserved, and the
   pitch of each note is the median over its frames, which centres vibrato.
+  Voicing uses hysteresis, so a brief confidence dip from bleed does not split
+  a sustained note. Each note then gets an octave check against the harmonic
+  sum of its spectrum, which recovers the fundamental when CREPE latched onto a
+  harmonic or subharmonic (bright tones are protected from being pushed up).
+  CREPE runs on the best available device (`ST_DEVICE`), falling back to CPU.
 - **Basic Pitch mode** tries to transcribe every pitched note in the stem. Use it
   when the sax is buried, or as an A/B comparison.
 - Octave harmonics outside the sax range are folded back into range, and short

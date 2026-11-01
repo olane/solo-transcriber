@@ -142,3 +142,68 @@ def test_crepe_follows_a_simple_melody(tmp_path):
     assert len(detected) <= 12
     for note in detected:
         assert note["end"] > note["start"]
+
+
+from app.pipeline.melody import (  # noqa: E402
+    _correct_octaves,
+    _voiced_mask,
+)
+
+
+def _harmonic_tone(frequency, harmonics=(1.0, 0.6, 0.3), sr=16000, seconds=0.6):
+    time = np.arange(int(sr * seconds)) / sr
+    return sum(
+        weight * np.sin(2 * np.pi * frequency * harmonic * time)
+        for harmonic, weight in zip((1, 2, 3), harmonics)
+    )
+
+
+def test_voicing_hysteresis_keeps_a_dip_from_splitting_a_note():
+    frames = 100
+    f0 = np.full(frames, 440.0)
+    periodicity = np.full(frames, 0.9)
+    periodicity[40:45] = 0.4
+
+    segments = _segment_notes(f0, periodicity, times(frames))
+
+    assert len(segments) == 1
+    assert segments[0][2] == 69
+
+
+def test_voicing_hysteresis_still_requires_a_confident_start():
+    periodicity = np.array([0.4, 0.45, 0.4, 0.4])
+
+    assert not _voiced_mask(periodicity, np.full(4, 440.0), 0.5).any()
+    assert _voiced_mask(np.array([0.6, 0.4, 0.4, 0.3]), np.full(4, 440.0), 0.5)[
+        :3
+    ].all()
+
+
+def test_octave_correction_lifts_a_subharmonic():
+    fmin, fmax = frequency_bounds("alto")
+    audio = _harmonic_tone(440.0)
+    frames = audio.size // 160
+
+    corrected = _correct_octaves(audio, 16000, [(0, frames - 1, 57)], fmin, fmax)
+
+    assert corrected[0][2] == 69
+
+
+def test_octave_correction_drops_a_harmonic():
+    fmin, fmax = frequency_bounds("alto")
+    audio = _harmonic_tone(220.0)
+    frames = audio.size // 160
+
+    corrected = _correct_octaves(audio, 16000, [(0, frames - 1, 69)], fmin, fmax)
+
+    assert corrected[0][2] == 57
+
+
+def test_octave_correction_keeps_a_bright_but_correct_tone():
+    fmin, fmax = frequency_bounds("alto")
+    audio = _harmonic_tone(440.0, harmonics=(1.0, 3.0, 0.2))
+    frames = audio.size // 160
+
+    corrected = _correct_octaves(audio, 16000, [(0, frames - 1, 69)], fmin, fmax)
+
+    assert corrected[0][2] == 69

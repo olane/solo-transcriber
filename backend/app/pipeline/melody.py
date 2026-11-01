@@ -8,6 +8,7 @@ import numpy as np
 from scipy.ndimage import median_filter
 
 from .notes import NoteEvent
+from .separate import pick_device
 
 HOP_LENGTH = 160
 SAMPLE_RATE = 16000
@@ -22,6 +23,20 @@ ONSET_WAIT_FRAMES = 2
 ARTICULATION_WINDOW_FRAMES = 2
 ARTICULATION_BASELINE_FRAMES = 8
 ARTICULATION_DIP_RATIO = 0.92
+
+# Voicing uses hysteresis: a note starts above the high threshold but survives
+# a brief confidence dip down to the low one. That keeps bleed and vibrato from
+# chopping a sustained tone into fragments.
+VOICING_LOW_RATIO = 0.7
+
+# Octave disambiguation. The salience check uses a coarse STFT because it only
+# needs to compare octave-related candidates, not measure pitch precisely.
+SALIENCE_N_FFT = 4096
+SALIENCE_HOP = 512
+HARMONIC_COUNT = 5
+HARMONIC_BAND_RATIO = 0.03
+HARMONIC_OCTAVE_MARGIN = 1.15
+HARMONIC_FUNDAMENTAL_GUARD = 0.15
 
 
 def _confirmed_onsets(onsets: Any, periodicity: np.ndarray) -> np.ndarray:
@@ -82,6 +97,29 @@ def _onset_mask(onsets: Any, length: int) -> np.ndarray:
     return mask
 
 
+def _voiced_mask(
+    periodicity: np.ndarray,
+    f0: np.ndarray,
+    high: float,
+    low: float | None = None,
+) -> np.ndarray:
+    """Apply voicing hysteresis so brief confidence dips do not split notes."""
+    if low is None:
+        low = high * VOICING_LOW_RATIO
+    valid = (f0 > 0) & np.isfinite(f0) & np.isfinite(periodicity)
+    mask = np.zeros(len(periodicity), dtype=bool)
+    active = False
+    for index, value in enumerate(periodicity):
+        if not valid[index]:
+            active = False
+        elif active:
+            active = value >= low
+        else:
+            active = value >= high
+        mask[index] = active
+    return mask
+
+
 def _pitch_center(values: np.ndarray, start: int, end: int, fallback: float) -> float:
     window = values[start:end]
     window = window[np.isfinite(window)]
@@ -119,7 +157,7 @@ def _segment_notes(
     for a few frames before they split a note, and the pitch of each segment is
     the median over its frames, which centres vibrato.
     """
-    voiced = (periodicity > threshold) & (f0 > 0) & np.isfinite(f0)
+    voiced = _voiced_mask(periodicity, f0, threshold)
     if voiced.sum() < 3:
         return []
 
@@ -255,11 +293,112 @@ def _detect_onsets(
     return np.asarray(frames, dtype=int)
 
 
+def _band_peak(spectrum: np.ndarray, freqs: np.ndarray, target: float) -> float:
+    """Peak magnitude near ``target``, wide enough to absorb vibrato."""
+    low = target * (1.0 - HARMONIC_BAND_RATIO)
+    high = target * (1.0 + HARMONIC_BAND_RATIO)
+    start = int(np.searchsorted(freqs, low))
+    end = int(np.searchsorted(freqs, high))
+    if end <= start:
+        index = int(np.clip(np.searchsorted(freqs, target), 0, freqs.size - 1))
+        return float(spectrum[index])
+    return float(np.max(spectrum[start:end]))
+
+
+def _harmonic_salience(
+    spectrum: np.ndarray, freqs: np.ndarray, f0: float
+) -> float:
+    """Weighted harmonic-sum salience for one candidate f0."""
+    total = 0.0
+    for harmonic in range(1, HARMONIC_COUNT + 1):
+        target = f0 * harmonic
+        if target >= freqs[-1]:
+            break
+        total += _band_peak(spectrum, freqs, target) / harmonic
+    return total
+
+
+def _correct_octaves(
+    audio: np.ndarray,
+    sr: int,
+    segments: list[tuple[int, int, int]],
+    fmin: float,
+    fmax: float,
+) -> list[tuple[int, int, int]]:
+    """Re-pick octave-ambiguous notes using harmonic-sum salience.
+
+    CREPE can latch onto a harmonic or subharmonic when other instruments
+    bleed into the stem. Comparing the salience of the reported pitch with the
+    octave above and below recovers the true fundamental when it is present.
+    Upward moves are guarded so a bright tone with a strong second harmonic is
+    not silently shifted up an octave.
+    """
+    if not segments or audio.size == 0:
+        return segments
+
+    try:
+        spectrum = np.abs(
+            librosa.stft(audio, n_fft=SALIENCE_N_FFT, hop_length=SALIENCE_HOP)
+        )
+    except Exception:
+        return segments
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=SALIENCE_N_FFT)
+    if freqs.size == 0 or spectrum.shape[1] == 0:
+        return segments
+
+    corrected: list[tuple[int, int, int]] = []
+    for start_frame, end_frame, pitch in segments:
+        start = max(0, int(round(start_frame * HOP_LENGTH / SALIENCE_HOP)))
+        end = min(
+            spectrum.shape[1] - 1,
+            int(round(end_frame * HOP_LENGTH / SALIENCE_HOP)),
+        )
+        if end < start:
+            start, end = end, start
+        window = spectrum[:, start : end + 1]
+        if window.size == 0:
+            corrected.append((start_frame, end_frame, pitch))
+            continue
+        profile = np.mean(window, axis=1)
+
+        candidates = [pitch]
+        for offset in (-12, 12):
+            candidate = pitch + offset
+            frequency = 440.0 * 2 ** ((candidate - 69) / 12.0)
+            if fmin <= frequency <= fmax:
+                candidates.append(candidate)
+        salience = {
+            candidate: _harmonic_salience(
+                profile, freqs, 440.0 * 2 ** ((candidate - 69) / 12.0)
+            )
+            for candidate in candidates
+        }
+        best = max(candidates, key=lambda candidate: salience[candidate])
+        chosen = pitch
+        if (
+            best != pitch
+            and salience[best] > salience[pitch] * HARMONIC_OCTAVE_MARGIN
+        ):
+            if best == pitch + 12:
+                fundamental = _band_peak(
+                    profile, freqs, 440.0 * 2 ** ((pitch - 69) / 12.0)
+                )
+                if fundamental > salience[best] * HARMONIC_FUNDAMENTAL_GUARD:
+                    chosen = pitch
+                else:
+                    chosen = best
+            else:
+                chosen = best
+        corrected.append((start_frame, end_frame, chosen))
+    return corrected
+
+
 def transcribe_melody(
     audio_path: Path,
     fmin: float,
     fmax: float,
     model: str = "tiny",
+    device: str = "auto",
 ) -> list[NoteEvent]:
     """Follow the dominant monophonic line with CREPE and segment it into notes."""
     import torch
@@ -270,23 +409,35 @@ def transcribe_melody(
         raise RuntimeError("The selected stem is empty")
 
     tensor = torch.tensor(audio, dtype=torch.float32).unsqueeze(0)
-    f0, periodicity = torchcrepe.predict(
-        tensor,
-        sr,
-        hop_length=HOP_LENGTH,
-        fmin=float(fmin),
-        fmax=float(fmax),
-        model=model,
-        batch_size=1024,
-        device="cpu",
-        return_periodicity=True,
-    )
+    resolved_device = pick_device(device)
+
+    def predict(device_name: str):
+        return torchcrepe.predict(
+            tensor,
+            sr,
+            hop_length=HOP_LENGTH,
+            fmin=float(fmin),
+            fmax=float(fmax),
+            model=model,
+            batch_size=1024,
+            device=device_name,
+            return_periodicity=True,
+        )
+
+    try:
+        f0, periodicity = predict(resolved_device)
+    except Exception:
+        if resolved_device == "cpu":
+            raise
+        f0, periodicity = predict("cpu")
+
     f0 = f0.squeeze(0).numpy()
     periodicity = periodicity.squeeze(0).numpy()
     times = np.arange(len(f0)) * HOP_LENGTH / sr
     onsets = _detect_onsets(audio, sr, HOP_LENGTH, fmin, fmax)
     onsets = _confirmed_onsets(onsets, periodicity)
     segments = _segment_notes(f0, periodicity, times, onsets)
+    segments = _correct_octaves(audio, sr, segments, fmin, fmax)
 
     rms = librosa.feature.rms(y=audio, frame_length=400, hop_length=HOP_LENGTH)[0]
     loudness = float(np.percentile(rms, 90)) or 1.0
