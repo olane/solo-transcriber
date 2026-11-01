@@ -53,11 +53,9 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Synthetic benchmark (informational)"
+            echo "## Synthetic benchmark"
             echo
-            echo "Regression tripwire, not a release gate. Real corrected"
-            echo "transcriptions are the authority; separation changes are not"
-            echo "measured here because isolated stems are fed to the transcriber."
+            echo "Informational. Synthetic data only; separation is not covered."
             echo
             for mode in raw rendered; do
               if [ -f ".benchmark/$mode.txt" ]; then
