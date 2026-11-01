@@ -50,6 +50,7 @@ class JobOut(BaseModel):
     original_url: str | None = None
     transcription: TranscriptionOut | None = None
     mock: bool = False
+    created_at: float = 0.0
 
 
 class TranscribeRequest(BaseModel):

@@ -92,7 +92,9 @@ ST_MOCK=1 uv run uvicorn app.main:app --app-dir backend --reload --port 8000
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/jobs` | Upload audio, decode it, build the waveform preview |
+| `GET` | `/api/jobs` | List saved jobs, newest first |
 | `GET` | `/api/jobs/{id}` | Poll status, section, stems, transcription |
+| `DELETE` | `/api/jobs/{id}` | Forget a job and delete its saved files |
 | `POST` | `/api/jobs/{id}/separate` | Trim to `{start, end}` seconds and separate stems |
 | `POST` | `/api/jobs/{id}/transcribe` | Transcribe `other`, another stem, or `original` |
 | `GET` | `/api/jobs/{id}/score` | Render `musicxml` or `midi` for an instrument |
@@ -124,8 +126,10 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
 - Tempo comes from beat tracking on the mix; swing and rubato may need a manual
   BPM. Time signature defaults to 4/4.
 - Pitch bends are detected but not engraved.
-- The job store is in memory; restarting the server forgets jobs (files stay in
-  `data/`).
+- Jobs are saved under `data/jobs/<id>/` (audio, stems, notes and a `job.json`
+  with the section and choices). They are restored on startup and listed on the
+  start screen, so you can reopen a test file without uploading and separating
+  it again. Use "Forget" to delete a saved job, or remove the directory.
 
 ## Troubleshooting
 
@@ -153,7 +157,7 @@ and restart.
 ```
 backend/app/
   main.py              FastAPI routes and static audio serving
-  jobs.py              in-memory jobs, background worker, score cache
+  jobs.py              job persistence, background worker, score cache
   pipeline/
     audio.py           ffmpeg decode, duration, BPM
     separate.py        Demucs stem separation

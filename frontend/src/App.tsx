@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   createJob,
+  deleteJob,
   getJob,
+  listJobs,
   scoreUrl,
   separateSection,
   transcribe,
@@ -45,8 +47,38 @@ function clock(seconds: number): string {
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
+function savedSummary(item: Job): string {
+  const date = item.created_at
+    ? new Date(item.created_at * 1000).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : "";
+  const section = item.section
+    ? `${clock(item.section.start)}-${clock(item.section.end)}`
+    : "";
+  if (item.status === "done" && item.transcription) {
+    const parts = [`${item.transcription.note_count} notes`];
+    if (section) parts.push(section);
+    if (item.selected_stem) parts.push(item.selected_stem);
+    if (date) parts.push(date);
+    return parts.join(" · ");
+  }
+  if (item.status === "awaiting_stem") {
+    return ["Ready for a stem", section, date].filter(Boolean).join(" · ");
+  }
+  if (item.status === "awaiting_section") {
+    return ["Choose a section", date].filter(Boolean).join(" · ");
+  }
+  if (item.status === "error") {
+    return ["Failed", date].filter(Boolean).join(" · ");
+  }
+  return [section, date].filter(Boolean).join(" · ");
+}
+
 export function App() {
   const [job, setJob] = useState<Job | null>(null);
+  const [saved, setSaved] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -61,6 +93,10 @@ export function App() {
   const [scoreError, setScoreError] = useState<string | null>(null);
   const [scoreLoading, setScoreLoading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void refreshSaved();
+  }, []);
 
   useEffect(() => {
     if (
@@ -158,6 +194,48 @@ export function App() {
     }
   }
 
+  async function refreshSaved() {
+    try {
+      setSaved(await listJobs());
+    } catch (err) {
+      setError(message(err));
+    }
+  }
+
+  function openJob(item: Job) {
+    setJob(item);
+    setError(null);
+    setScoreXml("");
+    setScoreError(null);
+    setBpm(null);
+    setBpmDraft("");
+    setEditingSection(false);
+    const instrument = item.transcription?.instrument;
+    if (instrument && instrument !== "concert") {
+      setSaxType(instrument);
+      setInstrument(instrument);
+    } else {
+      setSaxType("alto");
+      setInstrument("alto");
+    }
+  }
+
+  async function forgetJob(item: Job) {
+    if (
+      !window.confirm(
+        `Forget "${item.filename}"? This removes its saved audio, stems and score.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteJob(item.id);
+      setSaved((current) => current.filter((entry) => entry.id !== item.id));
+    } catch (err) {
+      setError(message(err));
+    }
+  }
+
   function adjustBpm(factor: number) {
     const base = bpm ?? job?.transcription?.bpm;
     if (!base) return;
@@ -184,6 +262,7 @@ export function App() {
     setBpmDraft("");
     setUploading(false);
     setEditingSection(false);
+    void refreshSaved();
   }
 
   const busy =
@@ -247,6 +326,40 @@ export function App() {
           >
             Choose a track
           </button>
+        </section>
+      )}
+
+      {!job && saved.length > 0 && (
+        <section className="saved">
+          <div className="saved-head">
+            <div>
+              <h2>Saved transcriptions</h2>
+              <p className="muted">
+                Reopen a track with its section, stems and score already in place.
+              </p>
+            </div>
+          </div>
+          <ul className="saved-list">
+            {saved.map((item) => (
+              <li key={item.id} className="saved-item">
+                <button
+                  type="button"
+                  className="saved-open"
+                  onClick={() => openJob(item)}
+                >
+                  <span className="saved-name">{item.filename}</span>
+                  <span className="saved-meta">{savedSummary(item)}</span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => void forgetJob(item)}
+                >
+                  Forget
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
