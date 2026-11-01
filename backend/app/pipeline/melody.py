@@ -13,9 +13,53 @@ MIN_NOTE_SECONDS = 0.06
 MERGE_GAP_SECONDS = 0.05
 PITCH_CONFIRM_FRAMES = 2
 PITCH_CENTER_FRAMES = 5
+PITCH_CHANGE_LOOKAHEAD_FRAMES = 6
 PITCH_TOLERANCE_SEMITONES = 0.75
 ONSET_DELTA = 0.1
 ONSET_WAIT_FRAMES = 2
+ARTICULATION_WINDOW_FRAMES = 2
+ARTICULATION_BASELINE_FRAMES = 8
+ARTICULATION_DIP_RATIO = 0.92
+
+
+def _confirmed_onsets(onsets: Any, periodicity: np.ndarray) -> np.ndarray:
+    """Keep only onsets backed by a dip in CREPE's confidence.
+
+    A broadband onset detector also fires on accompaniment bleed inside a
+    sustained note. A real re-articulation briefly destabilises the pitch
+    estimate, so require a local periodicity dip before splitting a note.
+    Onsets that start a note from silence are unaffected: ``_segment_notes``
+    starts those notes without needing the onset.
+    """
+    if onsets is None or len(periodicity) == 0:
+        return np.array([], dtype=int)
+    values = np.asarray(onsets)
+    if values.size == 0:
+        return np.array([], dtype=int)
+    if values.dtype == bool:
+        values = np.flatnonzero(values)
+    frames = values.astype(int)
+    frames = frames[(frames >= 0) & (frames < len(periodicity))]
+    confirmed: list[int] = []
+    for frame in frames:
+        inner = periodicity[
+            max(0, frame - ARTICULATION_WINDOW_FRAMES) : frame
+            + ARTICULATION_WINDOW_FRAMES
+            + 1
+        ]
+        surrounding = periodicity[
+            max(0, frame - ARTICULATION_BASELINE_FRAMES) : frame
+            + ARTICULATION_BASELINE_FRAMES
+            + 1
+        ]
+        if inner.size == 0 or surrounding.size == 0:
+            continue
+        baseline = float(np.percentile(surrounding, 75))
+        if baseline <= 0:
+            continue
+        if float(np.min(inner)) <= baseline * ARTICULATION_DIP_RATIO:
+            confirmed.append(frame)
+    return np.asarray(confirmed, dtype=int)
 
 
 def _onset_mask(onsets: Any, length: int) -> np.ndarray:
@@ -42,6 +86,21 @@ def _pitch_center(values: np.ndarray, start: int, end: int, fallback: float) -> 
     if window.size == 0:
         return fallback
     return float(np.median(window))
+
+
+def _pitch_changes_soon(smoothed: np.ndarray, index: int, pitch: float) -> bool:
+    """Detect a sustained pitch change just after an onset frame."""
+    window = smoothed[index + 1 : index + PITCH_CHANGE_LOOKAHEAD_FRAMES + 1]
+    window = window[np.isfinite(window)]
+    run = 0
+    for value in window:
+        if abs(float(value) - pitch) > PITCH_TOLERANCE_SEMITONES:
+            run += 1
+            if run >= PITCH_CONFIRM_FRAMES:
+                return True
+        else:
+            run = 0
+    return False
 
 
 def _segment_notes(
@@ -94,13 +153,20 @@ def _segment_notes(
             current = [index, index, center]
             candidate = None
         elif onset_mask[index] and index > current[0]:
-            if index - 1 >= current[0]:
-                segments.append([current[0], index - 1, current[2]])
-            center = _pitch_center(
-                smoothed, index, index + PITCH_CENTER_FRAMES, pitch
-            )
-            current = [index, index, center]
-            candidate = None
+            if _pitch_changes_soon(smoothed, index, current[2]):
+                # A slightly early onset right before a pitch change would
+                # leave a tiny same-pitch fragment. Let the pitch change
+                # create the boundary instead.
+                current[1] = index
+                candidate = None
+            else:
+                if index - 1 >= current[0]:
+                    segments.append([current[0], index - 1, current[2]])
+                center = _pitch_center(
+                    smoothed, index, index + PITCH_CENTER_FRAMES, pitch
+                )
+                current = [index, index, center]
+                candidate = None
         elif abs(pitch - current[2]) <= PITCH_TOLERANCE_SEMITONES:
             current[1] = index
             candidate = None
@@ -219,6 +285,7 @@ def transcribe_melody(
     periodicity = periodicity.squeeze(0).numpy()
     times = np.arange(len(f0)) * HOP_LENGTH / sr
     onsets = _detect_onsets(audio, sr, HOP_LENGTH, fmin, fmax)
+    onsets = _confirmed_onsets(onsets, periodicity)
     segments = _segment_notes(f0, periodicity, times, onsets)
 
     rms = librosa.feature.rms(y=audio, frame_length=400, hop_length=HOP_LENGTH)[0]
