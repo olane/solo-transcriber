@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 from music21 import clef, instrument, key, metadata, meter, note, pitch, stream, tempo
+
+from .notes import NoteEvent, sort_and_dedupe
 
 INSTRUMENTS = {
     "concert": instrument.Saxophone,
@@ -38,7 +39,7 @@ def _grid_error(offsets: list[float], divisors: tuple[int, ...]) -> float:
 
 
 def _quantization_divisors(
-    normalized: list[dict[str, Any]],
+    normalized: list[NoteEvent],
     seconds_per_quarter: float,
     origin: float,
 ) -> tuple[int, ...]:
@@ -93,19 +94,14 @@ def _legal_key(part, analyzed_key, instrument_key: str):
     return target
 
 
-def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_notes(notes: list[NoteEvent]) -> list[NoteEvent]:
     cleaned = [
         dict(note)
         for note in notes
         if note.get("end", 0) > note.get("start", 0)
         and 0 <= int(note.get("pitch", -1)) <= 127
     ]
-    cleaned.sort(key=lambda item: (float(item["start"]), -int(item.get("velocity", 80))))
-    result: list[dict[str, Any]] = []
-    for item in cleaned:
-        if result and abs(float(item["start"]) - float(result[-1]["start"])) < 0.001:
-            continue
-        result.append(item)
+    result = sort_and_dedupe(cleaned)
     for current, following in zip(result, result[1:]):
         if float(current["end"]) > float(following["start"]):
             current["end"] = max(
@@ -137,7 +133,7 @@ def _pad_final_measure(part, bar_quarter_length: float) -> None:
 
 
 def build_score(
-    notes: list[dict[str, Any]],
+    notes: list[NoteEvent],
     bpm: float,
     instrument_key: str = "alto",
     time_signature: str = "4/4",
@@ -214,7 +210,7 @@ def safe_title(title: str) -> str:
 
 
 def render_score(
-    notes: list[dict[str, Any]],
+    notes: list[NoteEvent],
     bpm: float,
     instrument_key: str,
     time_signature: str,

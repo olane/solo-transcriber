@@ -129,7 +129,7 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
   at the first note. The time signature is inferred from the beat accents
   (4/4, 3/4, 2/4 or 6/8) and remains editable. Swing, rubato and mid-track tempo
   changes may still need a manual BPM.
-- Pitch bends are detected but not engraved.
+- Pitch bends are not engraved.
 - Jobs are saved under `data/jobs/<id>/` (audio, stems, notes and a `job.json`
   with the section and choices). They are restored on startup and listed on the
   start screen, so you can reopen a test file without uploading and separating
@@ -169,9 +169,11 @@ backend/app/
     melody.py          CREPE tracking, onset-aware note segmentation
     transcribe.py      melody / Basic Pitch dispatch, range and octave repair
     notation.py        music21 score building and transposition
-    evaluation.py      mir_eval reference scoring for benchmark runs
-    synthetic.py       synthetic sax stems with exact note references
-    report.py          self-contained HTML benchmark report
+    notes.py           shared note ordering and duplicate removal
+  evaluation.py        mir_eval reference scoring for benchmark runs
+  synthetic.py         synthetic sax stems with exact note references
+  report.py            self-contained HTML benchmark report
+  report_template.html page template for the benchmark report
 backend/tests/         notation, melody, evaluation and mock pipeline tests
 frontend/src/          React UI, OSMD score viewer
 scripts/dev.sh         backend + frontend in one terminal
@@ -242,6 +244,9 @@ lower-level command is still available:
 uv run python scripts/benchmark_report.py benchmark/synthetic \
   --instrument alto --mode melody --open
 ```
+
+The report finds reference scores beside each stem using the same `.mid`,
+`.musicxml`, `.xml`, `.mxl` and `.json` lookup as `evaluate.py`.
 
 ## Roadmap
 

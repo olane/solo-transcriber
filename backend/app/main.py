@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -9,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .jobs import manager
+from .jobs import Job, RUNNING_STATUSES, manager
 from .pipeline.notation import TIME_SIGNATURES
 from .schemas import Instrument, JobOut, ScoreFormat, SectionRequest, TranscribeRequest
 
@@ -41,7 +40,7 @@ app.add_middleware(
 app.mount("/media", StaticFiles(directory=str(config.DATA_DIR)), name="media")
 
 
-def get_job_or_404(job_id: str):
+def get_job_or_404(job_id: str) -> Job:
     job = manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -77,12 +76,10 @@ async def create_job(file: UploadFile = File(...)) -> JobOut:
         if size == 0:
             raise HTTPException(status_code=400, detail="The uploaded file is empty")
     except HTTPException:
-        manager.delete(job.id)
-        shutil.rmtree(job.dir, ignore_errors=True)
+        manager.remove(job)
         raise
     except Exception as exc:
-        manager.delete(job.id)
-        shutil.rmtree(job.dir, ignore_errors=True)
+        manager.remove(job)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     manager.start_preparation(job, upload)
@@ -111,17 +108,17 @@ def separate(job_id: str, request: SectionRequest) -> JobOut:
     with job.lock:
         status = job.status
         duration = job.duration
-    if status in {"queued", "preparing", "separating", "transcribing"}:
+    if status in RUNNING_STATUSES:
         raise HTTPException(status_code=409, detail="This job is still running")
     if duration <= 0:
         raise HTTPException(status_code=409, detail="The audio is not ready yet")
 
     start = max(0.0, float(request.start))
     end = duration if request.end is None else min(duration, float(request.end))
-    if end - start < 2.0:
-        raise HTTPException(status_code=400, detail="Choose at least 2 seconds of audio")
     if start >= end:
         raise HTTPException(status_code=400, detail="The section end must be after its start")
+    if end - start < 2.0:
+        raise HTTPException(status_code=400, detail="Choose at least 2 seconds of audio")
 
     manager.start_section_separation(job, start, end)
     return manager.snapshot(job)
@@ -133,7 +130,7 @@ def transcribe(job_id: str, request: TranscribeRequest) -> JobOut:
     with job.lock:
         status = job.status
         stems = list(job.stems)
-    if status in {"queued", "preparing", "separating", "transcribing"}:
+    if status in RUNNING_STATUSES:
         raise HTTPException(status_code=409, detail="This job is still running")
     if status == "awaiting_section":
         raise HTTPException(status_code=409, detail="Choose a section first")
@@ -151,7 +148,7 @@ def read_score(
     instrument: Instrument = Query("alto"),
     time_signature: str = Query("4/4"),
     bpm: float | None = Query(None, ge=20, le=400),
-    format: ScoreFormat = Query("musicxml"),
+    fmt: ScoreFormat = Query("musicxml", alias="format"),
 ) -> FileResponse:
     job = get_job_or_404(job_id)
     if time_signature not in TIME_SIGNATURES:
@@ -163,14 +160,14 @@ def read_score(
 
     try:
         path, download_name = manager.render(
-            job, instrument, time_signature, effective_bpm, format
+            job, instrument, time_signature, effective_bpm, fmt
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     media_type = (
         "application/vnd.recordare.musicxml+xml"
-        if format == "musicxml"
+        if fmt == "musicxml"
         else "audio/midi"
     )
     return FileResponse(path, media_type=media_type, filename=download_name)

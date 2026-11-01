@@ -7,6 +7,16 @@ from pydantic import BaseModel, Field
 Instrument = Literal["concert", "soprano", "alto", "tenor", "bari"]
 ScoreFormat = Literal["musicxml", "midi"]
 TranscriptionMode = Literal["melody", "basic_pitch"]
+JobStatus = Literal[
+    "queued",
+    "preparing",
+    "awaiting_section",
+    "separating",
+    "awaiting_stem",
+    "transcribing",
+    "done",
+    "error",
+]
 
 
 class StemOut(BaseModel):
@@ -34,12 +44,11 @@ class TranscriptionOut(BaseModel):
     bar_offset: float = 0.0
     instrument: str = "alto"
     mode: str = "melody"
-    mock: bool = False
 
 
 class JobOut(BaseModel):
     id: str
-    status: str
+    status: JobStatus
     stage: str
     progress: int
     error: str | None = None

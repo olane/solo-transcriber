@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "benchmark",
         type=Path,
-        help="Directory of <name>.wav + <name>.json benchmark pairs",
+        help="Directory of <name>.wav stems plus matching reference scores",
     )
     parser.add_argument(
         "--out",
