@@ -1,6 +1,7 @@
 name: Synthetic benchmark
 
 on:
+  push:
   pull_request:
     paths:
       - "backend/app/**"
