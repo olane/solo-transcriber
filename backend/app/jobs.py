@@ -177,20 +177,46 @@ class JobManager:
         job.stems = persisted_stems + [
             name for name in disk_stems if name not in persisted_stems
         ]
+        metadata_bpm = _optional_float(metadata.get("bpm"))
+        notes_bpm = _optional_float(notes.get("bpm"))
+        prefer_notes = metadata_bpm is None and notes_bpm is not None
+
+        def restore_value(
+            metadata_key: str,
+            notes_key: str,
+            *,
+            zero_is_missing: bool = False,
+        ) -> Any:
+            primary = (
+                notes.get(notes_key)
+                if prefer_notes
+                else metadata.get(metadata_key)
+            )
+            fallback = (
+                metadata.get(metadata_key)
+                if prefer_notes
+                else notes.get(notes_key)
+            )
+            return _prefer(primary, fallback, zero_is_missing=zero_is_missing)
+
         job.selected_stem = metadata.get("selected_stem") or notes.get("stem")
         job.transcription_instrument = str(
-            metadata.get("transcription_instrument") or notes.get("instrument") or "alto"
+            restore_value("transcription_instrument", "instrument") or "alto"
         )
         job.transcription_mode = str(
-            metadata.get("transcription_mode") or notes.get("mode") or "melody"
+            restore_value("transcription_mode", "mode") or "melody"
         )
         job.transcription_duration = _to_float(
-            metadata.get("transcription_duration", notes.get("duration"))
+            restore_value(
+                "transcription_duration", "duration", zero_is_missing=True
+            )
         )
         job.transcription_first_note = _to_float(
-            metadata.get("transcription_first_note", notes.get("first_note"))
+            restore_value(
+                "transcription_first_note", "first_note", zero_is_missing=True
+            )
         )
-        job.bpm = _optional_float(metadata.get("bpm", notes.get("bpm")))
+        job.bpm = _optional_float(restore_value("bpm", "bpm"))
         job.note_count = int(metadata.get("note_count") or len(notes.get("notes") or []))
 
         if str(metadata.get("status")) == "error":
@@ -470,6 +496,17 @@ def _optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _prefer(
+    primary: Any, fallback: Any, *, zero_is_missing: bool = False
+) -> Any:
+    """Use ``fallback`` when ``primary`` is missing rather than present-but-empty."""
+    if primary is None:
+        return fallback
+    if zero_is_missing and _to_float(primary) == 0.0:
+        return fallback
+    return primary
 
 
 def _stems_on_disk(job_dir: Path) -> list[str]:
