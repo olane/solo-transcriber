@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Wrote {report}")
     print("Open the MusicXML files in MuseScore for a readable score.")
     if args.open:
-        webbrowser.open(report.as_uri())
+        webbrowser.open(report.resolve().as_uri())
     return 0
 
 
