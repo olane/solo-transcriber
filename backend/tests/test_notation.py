@@ -1,6 +1,7 @@
 import re
 
 from music21 import converter
+from music21.note import Rest
 
 from app.pipeline.notation import build_score, normalize_notes
 
@@ -74,6 +75,33 @@ def test_key_signature_follows_transposition(tmp_path):
     concert_fifths = re.search(r"<fifths>(-?\d+)</fifths>", concert.read_text())
     assert alto_fifths and alto_fifths.group(1) == "1"
     assert concert_fifths and concert_fifths.group(1) == "-2"
+
+
+def test_measures_are_complete_and_crossings_are_tied():
+    # At 60 BPM one second is one quarter note, so the first note runs half a
+    # beat past the first 4/4 barline.
+    notes = [
+        {"start": 0.0, "end": 4.5, "pitch": 60, "velocity": 80},
+        {"start": 5.0, "end": 6.0, "pitch": 62, "velocity": 80},
+    ]
+    part = build_score(notes, 60, "concert", "4/4", "Test").parts[0]
+    measures = part.getElementsByClass("Measure")
+
+    assert [m.duration.quarterLength for m in measures] == [4.0, 4.0]
+
+    ties = [n.tie.type for n in part.recurse().notes if n.tie is not None]
+    assert "start" in ties
+    assert "stop" in ties
+
+
+def test_final_measure_is_padded_with_rests():
+    notes = [{"start": 0.0, "end": 1.0, "pitch": 60, "velocity": 80}]
+    part = build_score(notes, 60, "concert", "3/4", "Test").parts[0]
+    measures = part.getElementsByClass("Measure")
+
+    assert len(measures) == 1
+    assert measures[0].duration.quarterLength == 3.0
+    assert isinstance(measures[0].notesAndRests[-1], Rest)
 
 
 def test_normalize_notes_clips_overlaps_and_duplicates():

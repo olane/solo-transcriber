@@ -74,6 +74,20 @@ def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [item for item in result if float(item["end"]) > float(item["start"])]
 
 
+def _pad_final_measure(part, bar_quarter_length: float) -> None:
+    """Fill the last measure with a rest so it spans the whole bar."""
+    measures = part.getElementsByClass(stream.Measure)
+    if not measures:
+        return
+    last = measures[-1]
+    remaining = bar_quarter_length - float(last.highestTime)
+    if remaining <= 1e-6:
+        return
+    rest = note.Rest()
+    rest.duration.quarterLength = remaining
+    last.insert(float(last.highestTime), rest)
+
+
 def build_score(
     notes: list[dict[str, Any]],
     bpm: float,
@@ -128,6 +142,12 @@ def build_score(
         inPlace=True,
     )
     part.makeMeasures(inPlace=True)
+    # makeMeasures only buckets notes by start offset. Split notes that cross a
+    # barline into tied notes and fill the gaps so every bar has full duration.
+    part.makeTies(inPlace=True)
+    part.makeRests(fillGaps=True, inPlace=True)
+    bar_length = meter.TimeSignature(time_signature).barDuration.quarterLength
+    _pad_final_measure(part, bar_length)
 
     score = stream.Score([part])
     score.metadata = metadata.Metadata(title=title)
