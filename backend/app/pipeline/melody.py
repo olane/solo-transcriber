@@ -18,8 +18,16 @@ PITCH_CONFIRM_FRAMES = 2
 PITCH_CENTER_FRAMES = 5
 PITCH_CHANGE_LOOKAHEAD_FRAMES = 6
 PITCH_TOLERANCE_SEMITONES = 0.75
-ONSET_DELTA = 0.1
 ONSET_WAIT_FRAMES = 2
+ONSET_PRE_MAX = 3
+ONSET_POST_MAX = 3
+ONSET_PRE_AVG = 8
+ONSET_POST_AVG = 8
+ONSET_MEDIAN_FACTOR = 1.5
+ONSET_MIN_DELTA = 0.08
+ONSET_MAX_DELTA = 0.25
+RELEASE_FLOOR_RATIO = 0.2
+RELEASE_MIN_FRAMES = 2
 ARTICULATION_WINDOW_FRAMES = 2
 ARTICULATION_BASELINE_FRAMES = 8
 ARTICULATION_DIP_RATIO = 0.92
@@ -259,6 +267,45 @@ def _segment_notes(
     return merged
 
 
+def _pick_onsets(envelope: np.ndarray) -> np.ndarray:
+    """Pick attack frames with a threshold adapted to the local noise floor.
+
+    A fixed delta misses soft tonguing on a quiet stem and fires on noise in a
+    busy one. Scaling by the median and median absolute deviation makes the
+    threshold follow the stem instead. Onsets are then backtracked to the
+    energy minimum before the peak so they align with the actual attack.
+    """
+    if envelope.size == 0:
+        return np.array([], dtype=int)
+    scale = float(np.percentile(envelope, 99))
+    if scale <= 0:
+        return np.array([], dtype=int)
+    normalized = envelope / scale
+    baseline = float(np.median(normalized))
+    deviation = float(np.median(np.abs(normalized - baseline)))
+    # Clamp above as well: an adaptive threshold that climbs too high misses
+    # soft re-articulations in legato passages, which are still real attacks.
+    delta = min(
+        ONSET_MAX_DELTA,
+        max(ONSET_MIN_DELTA, baseline + ONSET_MEDIAN_FACTOR * deviation),
+    )
+    frames = librosa.util.peak_pick(
+        normalized,
+        pre_max=ONSET_PRE_MAX,
+        post_max=ONSET_POST_MAX,
+        pre_avg=ONSET_PRE_AVG,
+        post_avg=ONSET_POST_AVG,
+        delta=delta,
+        wait=ONSET_WAIT_FRAMES,
+    )
+    if frames.size == 0:
+        return np.array([], dtype=int)
+    frames = librosa.onset.onset_backtrack(
+        np.asarray(frames, dtype=int), envelope
+    )
+    return np.asarray(frames, dtype=int)
+
+
 def _detect_onsets(
     audio: np.ndarray,
     sr: int,
@@ -276,21 +323,36 @@ def _detect_onsets(
         fmin=float(fmin),
         fmax=float(fmax),
     )
-    if envelope.size == 0:
-        return np.array([], dtype=int)
-    scale = float(np.percentile(envelope, 99))
-    if scale <= 0:
-        return np.array([], dtype=int)
-    frames = librosa.onset.onset_detect(
-        onset_envelope=envelope / scale,
-        sr=sr,
-        hop_length=hop_length,
-        units="frames",
-        backtrack=True,
-        wait=ONSET_WAIT_FRAMES,
-        delta=ONSET_DELTA,
-    )
-    return np.asarray(frames, dtype=int)
+    return _pick_onsets(envelope)
+
+
+def _trim_releases(
+    segments: list[tuple[int, int, int]],
+    rms: np.ndarray,
+) -> list[tuple[int, int, int]]:
+    """Shorten notes whose tail is only the detector coasting.
+
+    CREPE keeps reporting a pitch while the note decays, so untrimmed offsets
+    push the note past its real release. Walk back from the segment end while
+    the frame is below a fraction of the note's peak level.
+    """
+    if rms.size == 0:
+        return segments
+    trimmed: list[tuple[int, int, int]] = []
+    for start_frame, end_frame, pitch in segments:
+        start = max(0, min(int(start_frame), rms.size - 1))
+        end = max(start, min(int(end_frame), rms.size - 1))
+        window = rms[start : end + 1]
+        peak = float(np.max(window)) if window.size else 0.0
+        if peak <= 0.0:
+            trimmed.append((start_frame, end_frame, pitch))
+            continue
+        cutoff = peak * RELEASE_FLOOR_RATIO
+        index = end
+        while index > start + RELEASE_MIN_FRAMES and rms[index] < cutoff:
+            index -= 1
+        trimmed.append((start_frame, index, pitch))
+    return trimmed
 
 
 def _band_peak(spectrum: np.ndarray, freqs: np.ndarray, target: float) -> float:
@@ -440,6 +502,7 @@ def transcribe_melody(
     segments = _correct_octaves(audio, sr, segments, fmin, fmax)
 
     rms = librosa.feature.rms(y=audio, frame_length=400, hop_length=HOP_LENGTH)[0]
+    segments = _trim_releases(segments, rms)
     loudness = float(np.percentile(rms, 90)) or 1.0
     notes: list[NoteEvent] = []
     for start_frame, end_frame, pitch in segments:
