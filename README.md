@@ -38,6 +38,10 @@ Notes are stored once at concert pitch. Instrument, tempo and time signature are
 applied at engraving time, so switching between alto, tenor, bari, soprano or
 concert pitch does not re-run the models.
 
+Onset picking adapts to each stem's noise floor and backtracks to the attack,
+and note tails are trimmed once the level has decayed instead of coasting on
+trailing frames.
+
 ## Requirements
 
 - macOS on Apple Silicon (developed for an M1 Max, 64 GB)
