@@ -15,7 +15,12 @@ from . import config
 from .pipeline.audio import make_preview, to_wav, trim_wav, wav_duration
 from .pipeline.beats import BeatGrid, detect_beat_grid
 from .pipeline.notation import render_score, safe_title
-from .pipeline.separate import SUGGESTED_STEM, order_stems, separate_stems
+from .pipeline.separate import (
+    SUGGESTED_STEM,
+    order_stems,
+    separate_stems,
+    suggest_stem,
+)
 from .pipeline.transcribe import transcribe_file
 from .schemas import JobOut, JobStatus, SectionOut, StemOut, TranscriptionOut
 
@@ -44,6 +49,7 @@ class Job:
     section_start: float | None = None
     section_end: float | None = None
     stems: list[str] = field(default_factory=list)
+    suggested_stem: str | None = None
     selected_stem: str | None = None
     bpm: float | None = None
     note_count: int = 0
@@ -181,6 +187,10 @@ class JobManager:
         job.stems = persisted_stems + [
             name for name in disk_stems if name not in persisted_stems
         ]
+        suggested = metadata.get("suggested_stem")
+        if suggested not in job.stems:
+            suggested = SUGGESTED_STEM if SUGGESTED_STEM in job.stems else None
+        job.suggested_stem = suggested if isinstance(suggested, str) else None
         metadata_bpm = _optional_float(metadata.get("bpm"))
         notes_bpm = _optional_float(notes.get("bpm"))
         prefer_notes = metadata_bpm is None and notes_bpm is not None
@@ -278,11 +288,14 @@ class JobManager:
 
     def snapshot(self, job: Job) -> JobOut:
         with job.lock:
+            suggested = job.suggested_stem
+            if suggested not in job.stems:
+                suggested = SUGGESTED_STEM if SUGGESTED_STEM in job.stems else None
             stems = [
                 StemOut(
                     name=name,
                     url=f"/media/jobs/{job.id}/stems/{name}.wav",
-                    suggested=name == SUGGESTED_STEM,
+                    suggested=name == suggested,
                 )
                 for name in job.stems
             ]
@@ -457,8 +470,15 @@ class JobManager:
             self._clear_outputs(job)
             section = trim_wav(job.source_wav, job.section_wav, start, end)
             stems = separate_stems(section, job.dir, mock=job.mock)
+            suggested = SUGGESTED_STEM
+            if not job.mock:
+                try:
+                    suggested = suggest_stem(job.dir / "stems", stems)
+                except Exception:
+                    suggested = SUGGESTED_STEM
             with job.lock:
                 job.stems = stems
+                job.suggested_stem = suggested
                 job.set_phase("awaiting_stem", "Pick the sax stem", 55)
             self.persist(job)
         except Exception as exc:
