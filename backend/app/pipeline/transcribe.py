@@ -93,9 +93,10 @@ def repair_octave_jumps(
 
 def monophonic_cleanup(notes: list[NoteEvent]) -> list[NoteEvent]:
     """Keep a single sax line: drop specks, dedupe attacks, trim overlaps."""
+    copied = [NoteEvent(**note) for note in notes]
     cleaned = [
         note
-        for note in notes
+        for note in copied
         if note["end"] - note["start"] >= MIN_NOTE_SECONDS
         and 0 <= int(note["pitch"]) <= 127
     ]

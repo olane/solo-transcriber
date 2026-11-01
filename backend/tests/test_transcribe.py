@@ -39,6 +39,18 @@ def test_monophonic_cleanup_keeps_one_line():
         assert current["end"] <= following["start"]
 
 
+def test_monophonic_cleanup_does_not_mutate_its_input():
+    notes = [
+        {"start": 0.0, "end": 1.0, "pitch": 60, "velocity": 80},
+        {"start": 0.5, "end": 1.5, "pitch": 62, "velocity": 80},
+    ]
+    original = [dict(note) for note in notes]
+
+    monophonic_cleanup(notes)
+
+    assert notes == original
+
+
 def test_note_events_round_fractional_pitch():
     notes = note_events_to_notes([(0.0, 0.5, 60.6, 0.8, None)])
 
