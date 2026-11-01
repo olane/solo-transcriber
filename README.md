@@ -145,8 +145,12 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
   track, not the sax stem. The first bar is placed on a detected downbeat, so a
   solo that enters mid-bar is engraved with the right rests instead of starting
   at the first note. The time signature is inferred from the beat accents
-  (4/4, 3/4, 2/4 or 6/8) and remains editable. Swing, rubato and mid-track tempo
-  changes may still need a manual BPM.
+  (4/4, 3/4, 2/4 or 6/8) and remains editable. Before engraving, the tempo is
+  nudged by at most 2% when the transcribed onsets clearly fit the grid better,
+  so a slightly off beat track does not smear long passages. Mixed straight and
+  triplet passages keep tuplets when a real share of the notes lands on the
+  triplet grid. Swing, rubato and mid-track tempo changes may still need a
+  manual BPM.
 - Pitch bends are not engraved.
 - Jobs are saved under `data/jobs/<id>/` (audio, stems, notes and a `job.json`
   with the section and choices). They are restored on startup and listed on the
