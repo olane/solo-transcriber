@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: benchmark-${{ github.event.pull_request.number || github.ref }}
@@ -52,6 +53,7 @@ jobs:
       - name: Publish summary
         if: always()
         run: |
+          mkdir -p .benchmark
           {
             echo "## Synthetic benchmark"
             echo
@@ -65,7 +67,22 @@ jobs:
                 echo '```'
               fi
             done
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo
+            echo "[Run log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          } > .benchmark/summary.md
+          cat .benchmark/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment on PR
+        if: >-
+          always() && github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -f .benchmark/summary.md ]; then
+            gh pr comment "$PR_NUMBER" --body-file .benchmark/summary.md \
+              --edit-last --create-if-none
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:
