@@ -16,6 +16,8 @@ from .pipeline.separate import SUGGESTED_STEM, separate_stems
 from .pipeline.transcribe import transcribe_file
 from .schemas import JobOut, StemOut, TranscriptionOut
 
+SCORE_CACHE_VERSION = "2"
+
 
 @dataclass
 class Job:
@@ -136,7 +138,9 @@ class JobManager:
             if job.bpm is None or not job.notes_path.exists():
                 raise ValueError("This job has no transcription yet")
             title = Path(job.filename).stem
-        safe = safe_title(f"{title}-{instrument_key}-{time_signature}-{float(bpm):.1f}")
+        safe = safe_title(
+            f"v{SCORE_CACHE_VERSION}-{title}-{instrument_key}-{time_signature}-{float(bpm):.1f}"
+        )
         out = job.dir / "scores" / f"{safe}.{fmt}"
         if not out.exists():
             payload = json.loads(job.notes_path.read_text())

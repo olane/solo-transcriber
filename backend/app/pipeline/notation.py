@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from music21 import instrument, key, metadata, meter, note, stream, tempo
+from music21 import instrument, key, metadata, meter, note, pitch, stream, tempo
 
 INSTRUMENTS = {
     "concert": instrument.Saxophone,
@@ -16,7 +16,40 @@ INSTRUMENTS = {
 
 TIME_SIGNATURES = ("4/4", "3/4", "2/4", "6/8")
 
+# Key-signature shift (in fifths) when written pitch is transposed up from concert.
+KEY_SHIFTS = {"soprano": 2, "alto": 3, "tenor": 2, "bari": 3, "concert": 0}
+
 MIN_QUARTER_LENGTH = 0.05
+
+
+def _respell_part(part, target_key) -> None:
+    """Rewrite diatonic note spellings into the target key's enharmonic spelling."""
+    names = {p.pitchClass: p.name for p in target_key.getScale().getPitches()}
+    for event in part.recurse().notes:
+        if not isinstance(event, note.Note):
+            continue
+        name = names.get(event.pitch.pitchClass)
+        if name is None:
+            continue
+        midi = event.pitch.midi
+        octave = 4 + (midi - pitch.Pitch(f"{name}4").midi) // 12
+        event.pitch = pitch.Pitch(f"{name}{octave}")
+
+
+def _legal_key(part, analyzed_key, instrument_key: str):
+    """Keep the written key within seven accidentals by respelling enharmonically."""
+    shift = KEY_SHIFTS[instrument_key]
+    written = analyzed_key.sharps + shift
+    candidates = [written]
+    for delta in (-12, 12):
+        if -7 <= written + delta <= 7:
+            candidates.append(written + delta)
+    chosen = min(candidates, key=lambda value: (abs(value), value != written))
+    if chosen - shift == analyzed_key.sharps:
+        return analyzed_key
+    target = key.KeySignature(chosen - shift).asKey(analyzed_key.mode or "major")
+    _respell_part(part, target)
+    return target
 
 
 def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -84,6 +117,7 @@ def build_score(
         key_signature = part.analyze("key")
     except Exception:
         key_signature = key.Key("C")
+    key_signature = _legal_key(part, key_signature, instrument_key)
     part.insert(0, key_signature)
 
     part.quantize(

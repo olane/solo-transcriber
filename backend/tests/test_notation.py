@@ -86,3 +86,29 @@ def test_normalize_notes_clips_overlaps_and_duplicates():
     assert cleaned[0]["pitch"] == 64
     assert cleaned[0]["end"] <= 0.5
     assert cleaned[1]["pitch"] == 62
+
+
+def test_extreme_keys_stay_within_seven_accidentals(tmp_path):
+    # Concert B major plus alto/tenor transposition would naively need 8+ sharps.
+    b_major = [
+        {"start": 0.0, "end": 0.5, "pitch": 71, "velocity": 80},
+        {"start": 0.5, "end": 1.0, "pitch": 73, "velocity": 80},
+        {"start": 1.0, "end": 1.5, "pitch": 75, "velocity": 80},
+        {"start": 1.5, "end": 2.0, "pitch": 76, "velocity": 80},
+        {"start": 2.0, "end": 2.5, "pitch": 78, "velocity": 80},
+        {"start": 2.5, "end": 3.0, "pitch": 80, "velocity": 80},
+        {"start": 3.0, "end": 3.5, "pitch": 82, "velocity": 80},
+        {"start": 3.5, "end": 4.0, "pitch": 83, "velocity": 80},
+    ]
+    for sax in ("alto", "tenor", "bari", "soprano", "concert"):
+        xml_path = tmp_path / f"{sax}-extreme.musicxml"
+        midi_path = tmp_path / f"{sax}-extreme.mid"
+        score = build_score(b_major, 120, sax, "4/4", "Extreme")
+        score.write("musicxml", fp=str(xml_path))
+        score.write("midi", fp=str(midi_path))
+
+        fifths = int(re.search(r"<fifths>(-?\d+)</fifths>", xml_path.read_text()).group(1))
+        assert -7 <= fifths <= 7
+
+        sounding = [n.pitch.midi for n in converter.parse(str(midi_path)).recurse().notes]
+        assert sounding == [71, 73, 75, 76, 78, 80, 82, 83]
