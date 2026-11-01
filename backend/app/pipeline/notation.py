@@ -26,15 +26,29 @@ STRAIGHT_DIVISORS = (4,)
 TRIPLET_DIVISORS = (4, 3)
 TRIPLET_MIN_STRAIGHT_ERROR = 0.04
 TRIPLET_ERROR_RATIO = 0.5
+TRIPLET_MIN_FRACTION = 0.15
+
+# Tempo refinement stays close to the beat tracker so the engraved tempo still
+# matches the track; only a clear reduction in grid error is accepted.
+TEMPO_MAX_RELATIVE_SHIFT = 0.02
+TEMPO_SEARCH_STEP = 0.001
+TEMPO_MIN_IMPROVEMENT = 0.2
+
+
+def _grid_errors(
+    offsets: list[float], divisors: tuple[int, ...]
+) -> list[float]:
+    """Per-onset distance to the nearest allowed subdivision."""
+    grids = [1.0 / divisor for divisor in divisors]
+    return [
+        min(abs(value - round(value / grid) * grid) for grid in grids)
+        for value in offsets
+    ]
 
 
 def _grid_error(offsets: list[float], divisors: tuple[int, ...]) -> float:
     """Median distance from note onsets to the nearest allowed subdivision."""
-    grids = [1.0 / divisor for divisor in divisors]
-    errors = [
-        min(abs(value - round(value / grid) * grid) for grid in grids)
-        for value in offsets
-    ]
+    errors = _grid_errors(offsets, divisors)
     return float(sorted(errors)[len(errors) // 2]) if errors else 0.0
 
 
@@ -57,11 +71,73 @@ def _quantization_divisors(
     ]
     straight = _grid_error(offsets, STRAIGHT_DIVISORS)
     if straight <= TRIPLET_MIN_STRAIGHT_ERROR:
+        # Most of the line is already straight. Only allow tuplets when a real
+        # share of the onsets lands substantially closer to the triplet grid,
+        # so one or two stray timings cannot sprout tuplets everywhere.
+        straight_errors = _grid_errors(offsets, STRAIGHT_DIVISORS)
+        triplet_errors = _grid_errors(offsets, TRIPLET_DIVISORS)
+        better = sum(
+            1
+            for straight_error, triplet_error in zip(
+                straight_errors, triplet_errors
+            )
+            if triplet_error + TRIPLET_MIN_STRAIGHT_ERROR < straight_error
+        )
+        if better / len(offsets) >= TRIPLET_MIN_FRACTION:
+            return TRIPLET_DIVISORS
         return STRAIGHT_DIVISORS
     triplet = _grid_error(offsets, TRIPLET_DIVISORS)
     if triplet < straight * TRIPLET_ERROR_RATIO:
         return TRIPLET_DIVISORS
     return STRAIGHT_DIVISORS
+
+
+def refine_tempo(
+    notes: list[NoteEvent],
+    bpm: float,
+    origin: float,
+    max_relative: float = TEMPO_MAX_RELATIVE_SHIFT,
+    min_improvement: float = TEMPO_MIN_IMPROVEMENT,
+) -> float:
+    """Nudge the tempo so transcribed onsets sit closer to the chosen grid.
+
+    Beat tracking runs on the whole mix and can be slightly off for the solo
+    (or drift against it). Searching a narrow range around the reported tempo
+    and keeping the correction only when it clearly reduces the median grid
+    error avoids chasing rubato and note-onset jitter.
+    """
+    normalized = normalize_notes(notes)
+    if not normalized or bpm <= 0:
+        return bpm
+
+    divisors = _quantization_divisors(normalized, 60.0 / bpm, origin)
+    base = _grid_error(
+        [
+            (float(item["start"]) - origin) / (60.0 / bpm)
+            for item in normalized
+        ],
+        divisors,
+    )
+    if base <= 1e-9:
+        return bpm
+
+    best_bpm = bpm
+    best_error = base
+    steps = int(round(max_relative / TEMPO_SEARCH_STEP))
+    for step in sorted(range(-steps, steps + 1), key=abs):
+        candidate = bpm * (1.0 + step * TEMPO_SEARCH_STEP)
+        offsets = [
+            (float(item["start"]) - origin) / (60.0 / candidate)
+            for item in normalized
+        ]
+        error = _grid_error(offsets, divisors)
+        if error < best_error - 1e-9:
+            best_error = error
+            best_bpm = candidate
+
+    if base - best_error >= base * min_improvement:
+        return best_bpm
+    return bpm
 
 
 def _respell_part(part, target_key) -> None:
@@ -151,17 +227,20 @@ def build_score(
     if not normalized:
         raise ValueError("There are no notes to engrave")
 
-    part = stream.Part()
-    part.insert(0, INSTRUMENTS[instrument_key]())
-    part.insert(0, clef.TrebleClef())
-    part.insert(0, tempo.MetronomeMark(number=round(float(bpm), 1)))
-    part.insert(0, meter.TimeSignature(time_signature))
-
-    seconds_per_quarter = 60.0 / float(bpm)
     first_note = float(normalized[0]["start"])
     # Bar 1 normally sits on a detected downbeat, so keep any pickup before the
     # barline from disappearing.
     origin = first_note if bar_offset is None else min(float(bar_offset), first_note)
+    bpm = round(refine_tempo(normalized, float(bpm), origin), 1)
+    seconds_per_quarter = 60.0 / bpm
+    divisors = _quantization_divisors(normalized, seconds_per_quarter, origin)
+
+    part = stream.Part()
+    part.insert(0, INSTRUMENTS[instrument_key]())
+    part.insert(0, clef.TrebleClef())
+    part.insert(0, tempo.MetronomeMark(number=bpm))
+    part.insert(0, meter.TimeSignature(time_signature))
+
     for item in normalized:
         event = note.Note(int(item["pitch"]))
         event.velocity = max(1, min(127, int(item.get("velocity", 80))))
@@ -184,9 +263,7 @@ def build_score(
     part.insert(0, key_signature)
 
     part.quantize(
-        quarterLengthDivisors=_quantization_divisors(
-            normalized, seconds_per_quarter, origin
-        ),
+        quarterLengthDivisors=divisors,
         processOffsets=True,
         processDurations=True,
         inPlace=True,

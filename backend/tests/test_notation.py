@@ -1,9 +1,15 @@
 import re
 
-from music21 import converter
+import pytest
+from music21 import converter, tempo
 from music21.note import Rest
 
-from app.pipeline.notation import build_score, normalize_notes
+from app.pipeline.notation import (
+    _quantization_divisors,
+    build_score,
+    normalize_notes,
+    refine_tempo,
+)
 
 
 NOTES = [
@@ -242,3 +248,43 @@ def test_bar_offset_never_skips_a_pickup_note():
     first = next(part.recurse().notes)
 
     assert round(float(first.offset), 3) == 0.0
+
+
+def _quarter_note(start):
+    return {"start": start, "end": start + 0.1, "pitch": 60, "velocity": 80}
+
+
+def test_refine_tempo_recovers_a_small_beat_tracking_error():
+    notes = [_quarter_note(index * 0.5) for index in range(16)]
+
+    refined = refine_tempo(notes, 118.5, 0.0)
+
+    assert refined == pytest.approx(120.0, abs=0.6)
+
+
+def test_refine_tempo_keeps_an_already_aligned_tempo():
+    notes = [_quarter_note(index * 0.5) for index in range(16)]
+
+    assert refine_tempo(notes, 120.0, 0.0) == pytest.approx(120.0)
+
+
+def test_build_score_uses_the_refined_tempo():
+    notes = [_quarter_note(index * 0.5) for index in range(16)]
+
+    part = build_score(notes, 118.5, "concert", "4/4", "Refined").parts[0]
+    mark = list(part.recurse().getElementsByClass(tempo.MetronomeMark))[0]
+
+    assert mark.number == pytest.approx(120.0, abs=0.6)
+
+
+def test_mixed_straight_and_triplet_onsets_allow_tuplets():
+    notes = [_quarter_note(index * 0.5) for index in range(8)]
+    notes += [_quarter_note(4.0 + index / 3.0) for index in range(3)]
+
+    assert _quantization_divisors(notes, 1.0, 0.0) == (4, 3)
+
+
+def test_a_mostly_straight_line_keeps_the_straight_grid():
+    notes = [_quarter_note(index * 0.5 + 0.004) for index in range(12)]
+
+    assert _quantization_divisors(notes, 1.0, 0.0) == (4,)
