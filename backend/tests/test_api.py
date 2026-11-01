@@ -51,6 +51,7 @@ def test_mock_pipeline_end_to_end(tmp_path):
     job = wait_for(client, job["id"], {"awaiting_stem", "error"})
     assert job["status"] == "awaiting_stem", job
     assert job["section"] == {"start": 0.25, "end": 2.5}
+    assert job["original_url"].endswith("/section.wav")
     assert any(stem["suggested"] for stem in job["stems"])
 
     response = client.post(

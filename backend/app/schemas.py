@@ -47,6 +47,7 @@ class JobOut(BaseModel):
     selected_stem: str | None = None
     section: SectionOut | None = None
     preview_url: str | None = None
+    original_url: str | None = None
     transcription: TranscriptionOut | None = None
     mock: bool = False
 

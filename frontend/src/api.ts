@@ -45,6 +45,7 @@ export type Job = {
   selected_stem: string | null;
   section: Section | null;
   preview_url: string | null;
+  original_url: string | null;
   transcription: Transcription | null;
   mock: boolean;
 };

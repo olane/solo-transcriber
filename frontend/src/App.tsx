@@ -386,13 +386,13 @@ export function App() {
 
               <article className="stem">
                 <div className="stem-head">
-                  <strong>original mix</strong>
+                  <strong>original section</strong>
                   <span className="badge">Solo recordings</span>
                 </div>
                 <audio
                   controls
                   preload="none"
-                  src={`/media/jobs/${job.id}/source.wav`}
+                  src={job.original_url ?? `/media/jobs/${job.id}/source.wav`}
                 />
                 <button
                   type="button"
@@ -513,7 +513,7 @@ export function App() {
                     preload="none"
                     src={
                       job.selected_stem === "original"
-                        ? `/media/jobs/${job.id}/source.wav`
+                        ? job.original_url ?? `/media/jobs/${job.id}/source.wav`
                         : `/media/jobs/${job.id}/stems/${job.selected_stem}.wav`
                     }
                   />

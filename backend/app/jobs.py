@@ -108,11 +108,17 @@ class JobManager:
             if job.section_start is not None and job.section_end is not None:
                 section = SectionOut(start=job.section_start, end=job.section_end)
             preview_url = None
+            original_url = None
             if job.source_wav.exists():
                 preview = job.dir / "preview.mp3"
                 preview_url = (
                     f"/media/jobs/{job.id}/preview.mp3"
                     if preview.exists()
+                    else f"/media/jobs/{job.id}/source.wav"
+                )
+                original_url = (
+                    f"/media/jobs/{job.id}/section.wav"
+                    if job.section_wav.exists()
                     else f"/media/jobs/{job.id}/source.wav"
                 )
             transcription = None
@@ -138,6 +144,7 @@ class JobManager:
                 selected_stem=job.selected_stem,
                 section=section,
                 preview_url=preview_url,
+                original_url=original_url,
                 transcription=transcription,
                 mock=job.mock,
             )
