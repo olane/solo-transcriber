@@ -1,8 +1,8 @@
 # Solo Transcriber
 
-Play along with real recordings. Solo Transcriber separates a track into stems,
-lets you pick the one carrying the saxophone, and turns that stem into a
-transposed part you can read in MuseScore or import into a DAW.
+Play along with real recordings. Solo Transcriber lets you pick the solo section
+of a track, separates it into stems, and turns the stem carrying the saxophone
+into a transposed part you can read in MuseScore or import into a DAW.
 
 ## How it works
 
@@ -10,8 +10,14 @@ transposed part you can read in MuseScore or import into a DAW.
 audio file
    |
    v
-Demucs (htdemucs_6s)  ->  vocals / drums / bass / guitar / piano / other
-   |                         (the sax is usually in "other")
+decode + waveform preview
+   |
+   v
+choose the solo section (start / end)
+   |
+   v
+trim  ->  Demucs (htdemucs_6s)  ->  vocals / drums / bass / guitar / piano / other
+   |                                  (the sax is usually in "other")
    v
 stem audition + selection
    |
@@ -81,8 +87,9 @@ ST_MOCK=1 uv run uvicorn app.main:app --app-dir backend --reload --port 8000
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/jobs` | Upload audio and start separation |
-| `GET` | `/api/jobs/{id}` | Poll status, stems, transcription |
+| `POST` | `/api/jobs` | Upload audio, decode it, build the waveform preview |
+| `GET` | `/api/jobs/{id}` | Poll status, section, stems, transcription |
+| `POST` | `/api/jobs/{id}/separate` | Trim to `{start, end}` seconds and separate stems |
 | `POST` | `/api/jobs/{id}/transcribe` | Transcribe `other`, another stem, or `original` |
 | `GET` | `/api/jobs/{id}/score` | Render `musicxml` or `midi` for an instrument |
 
@@ -94,6 +101,8 @@ Score query parameters: `instrument=alto|tenor|bari|soprano|concert`,
 - Separation is the weak link. Sax lines often share the `other` stem with
   guitars, keys or synths, so bleed is normal. Audition everything; a solo
   recording can be transcribed directly with "original mix".
+- Select only the solo section first. It makes separation much faster and
+  stops long intros, outros and other solos from confusing the transcription.
 - Basic Pitch is instrument-agnostic and monophonic-friendly, but fast runs,
   growls and vibrato produce wrong rhythms or octaves. Clean up in MuseScore.
 - Tempo comes from beat tracking on the mix; swing and rubato may need a manual
