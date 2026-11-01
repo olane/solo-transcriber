@@ -9,6 +9,7 @@ export type JobStatus =
   | "error";
 
 export type Instrument = "concert" | "soprano" | "alto" | "tenor" | "bari";
+export type TranscriptionMode = "melody" | "basic_pitch";
 export type ScoreFormat = "musicxml" | "midi";
 
 export type Stem = {
@@ -27,6 +28,8 @@ export type Transcription = {
   note_count: number;
   duration: number;
   first_note: number;
+  instrument: Instrument;
+  mode: TranscriptionMode;
   mock: boolean;
 };
 
@@ -85,12 +88,17 @@ export async function separateSection(
   );
 }
 
-export async function transcribe(id: string, stem: string): Promise<Job> {
+export async function transcribe(
+  id: string,
+  stem: string,
+  instrument: Instrument,
+  mode: TranscriptionMode,
+): Promise<Job> {
   return parse<Job>(
     await fetch(`/api/jobs/${id}/transcribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stem }),
+      body: JSON.stringify({ stem, instrument, mode }),
     }),
   );
 }

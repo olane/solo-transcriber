@@ -535,3 +535,73 @@ footer {
     align-items: flex-start;
   }
 }
+
+.transcribe-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  align-items: end;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 18px;
+}
+
+.transcribe-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.transcribe-options select {
+  background: #0e121a;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.transcribe-options select:focus {
+  outline: 2px solid rgba(240, 163, 94, 0.45);
+  outline-offset: 1px;
+}
+
+.transcribe-options p {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bpm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bpm-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bpm-row button {
+  padding: 8px 10px;
+  font-size: 12px;
+  border-color: var(--line);
+}
+
+@media (max-width: 640px) {
+  .transcribe-options {
+    grid-template-columns: 1fr;
+  }
+}

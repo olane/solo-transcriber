@@ -7,6 +7,7 @@ import {
   transcribe,
   type Instrument,
   type Job,
+  type TranscriptionMode,
 } from "./api";
 import { ScoreView } from "./ScoreView";
 import { SectionPicker } from "./SectionPicker";
@@ -19,7 +20,20 @@ const INSTRUMENTS: { value: Instrument; label: string }[] = [
   { value: "concert", label: "Concert pitch" },
 ];
 
+const SAX_OPTIONS: { value: SaxType; label: string }[] = [
+  { value: "alto", label: "Alto sax (Eb)" },
+  { value: "tenor", label: "Tenor sax (Bb)" },
+  { value: "bari", label: "Baritone sax (Eb)" },
+  { value: "soprano", label: "Soprano sax (Bb)" },
+];
+
 const TIME_SIGNATURES = ["4/4", "3/4", "2/4", "6/8"];
+
+type SaxType = Exclude<Instrument, "concert">;
+
+function instrumentLabel(value: string): string {
+  return INSTRUMENTS.find((item) => item.value === value)?.label ?? value;
+}
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -38,6 +52,8 @@ export function App() {
   const [dragging, setDragging] = useState(false);
   const [editingSection, setEditingSection] = useState(false);
   const [instrument, setInstrument] = useState<Instrument>("alto");
+  const [saxType, setSaxType] = useState<SaxType>("alto");
+  const [method, setMethod] = useState<TranscriptionMode>("melody");
   const [timeSignature, setTimeSignature] = useState("4/4");
   const [bpm, setBpm] = useState<number | null>(null);
   const [bpmDraft, setBpmDraft] = useState("");
@@ -118,8 +134,9 @@ export function App() {
     setScoreError(null);
     setBpm(null);
     setBpmDraft("");
+    setInstrument(saxType);
     try {
-      setJob(await transcribe(job.id, stem));
+      setJob(await transcribe(job.id, stem, saxType, method));
     } catch (err) {
       setError(message(err));
     }
@@ -139,6 +156,14 @@ export function App() {
       setError(message(err));
       throw err;
     }
+  }
+
+  function adjustBpm(factor: number) {
+    const base = bpm ?? job?.transcription?.bpm;
+    if (!base) return;
+    const next = Math.min(400, Math.max(20, base * factor));
+    setBpm(next);
+    setBpmDraft(next.toFixed(1));
   }
 
   function commitBpm() {
@@ -297,6 +322,44 @@ export function App() {
           )}
 
           {job.stems.length > 0 && (
+            <div className="transcribe-options">
+              <label>
+                Your sax
+                <select
+                  value={saxType}
+                  onChange={(event) => {
+                    const value = event.target.value as SaxType;
+                    setSaxType(value);
+                    setInstrument(value);
+                  }}
+                >
+                  {SAX_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Transcription
+                <select
+                  value={method}
+                  onChange={(event) =>
+                    setMethod(event.target.value as TranscriptionMode)
+                  }
+                >
+                  <option value="melody">Melody (follow one line)</option>
+                  <option value="basic_pitch">Basic Pitch (polyphonic)</option>
+                </select>
+              </label>
+              <p className="muted">
+                Melody tracks the dominant single line inside your sax range.
+                Basic Pitch transcribes every pitched note it hears.
+              </p>
+            </div>
+          )}
+
+          {job.stems.length > 0 && (
             <div className="stems">
               {job.stems.map((stem) => (
                 <article
@@ -353,6 +416,12 @@ export function App() {
                     {job.transcription.bpm.toFixed(1)} BPM
                   </h2>
                   <div className="muted">
+                    {job.transcription.mode === "melody"
+                      ? "Melody mode"
+                      : "Basic Pitch mode"}{" "}
+                    · {instrumentLabel(job.transcription.instrument)}
+                  </div>
+                  <div className="muted">
                     {job.transcription.first_note > 0.5
                       ? `Sax enters ${clock(job.transcription.first_note)} into the section; the score starts there`
                       : "The score starts at the first note in the section"}
@@ -405,18 +474,36 @@ export function App() {
 
                 <label>
                   Tempo (BPM)
-                  <input
-                    type="number"
-                    min={20}
-                    max={400}
-                    step={0.1}
-                    value={bpmDraft}
-                    onChange={(event) => setBpmDraft(event.target.value)}
-                    onBlur={commitBpm}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") commitBpm();
-                    }}
-                  />
+                  <div className="bpm-row">
+                    <input
+                      type="number"
+                      min={20}
+                      max={400}
+                      step={0.1}
+                      value={bpmDraft}
+                      onChange={(event) => setBpmDraft(event.target.value)}
+                      onBlur={commitBpm}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") commitBpm();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="ghost"
+                      title="Use half tempo"
+                      onClick={() => adjustBpm(0.5)}
+                    >
+                      /2
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      title="Use double tempo"
+                      onClick={() => adjustBpm(2)}
+                    >
+                      x2
+                    </button>
+                  </div>
                 </label>
 
                 <label>
@@ -434,9 +521,11 @@ export function App() {
               </div>
 
               <p className="hint">
-                Written for {INSTRUMENTS.find((item) => item.value === instrument)?.label}.
-                Change instrument or tempo without re-transcribing. Export to
-                MusicXML for MuseScore, or MIDI for a DAW.
+                Written for {instrumentLabel(instrument)}. Transcribed with{" "}
+                {job.transcription.mode === "melody" ? "melody" : "Basic Pitch"}{" "}
+                mode for {instrumentLabel(job.transcription.instrument)}. Change
+                the displayed instrument or tempo without re-transcribing. Export
+                to MusicXML for MuseScore, or MIDI for a DAW.
               </p>
 
               {scoreError && <div className="banner error">{scoreError}</div>}
@@ -461,7 +550,7 @@ export function App() {
       )}
 
       <footer>
-        Stem separation by Demucs, transcription by Basic Pitch, notation by
+        Stem separation by Demucs, melody tracking by CREPE, notation by
         music21. Sheet music renders with OSMD.
       </footer>
     </div>
