@@ -102,6 +102,19 @@ Score query parameters: `instrument=alto|tenor|bari|soprano|concert`,
 - The job store is in memory; restarting the server forgets jobs (files stay in
   `data/`).
 
+## Troubleshooting
+
+`ModuleNotFoundError: No module named 'pkg_resources'` means the venv predates
+the `setuptools<81` pin that Basic Pitch's `resampy` dependency needs. Fix it
+without rebuilding the environment:
+
+```bash
+uv pip install 'setuptools<81'
+```
+
+Then restart the server. A fresh `uv sync --extra ml --extra dev` installs it
+automatically.
+
 ## Project layout
 
 ```

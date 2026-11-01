@@ -93,6 +93,16 @@ def transcribe_file(
 
     try:
         from basic_pitch.inference import predict
+    except ModuleNotFoundError as exc:
+        if exc.name == "pkg_resources":
+            raise RuntimeError(
+                "Basic Pitch's resampy dependency needs setuptools. Run: "
+                "uv pip install 'setuptools<81'"
+            ) from exc
+        raise RuntimeError(
+            "Basic Pitch could not load an inference backend. On macOS install "
+            "coremltools (uv pip install coremltools), or install basic-pitch[onnx]."
+        ) from exc
     except Exception as exc:
         raise RuntimeError(
             "Basic Pitch could not load an inference backend. On macOS install "
