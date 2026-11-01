@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps({"summary": summary, "results": rows}, indent=2))
         print(f"Wrote {args.json}")
-    return 1 if failures == len(rows) else 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
