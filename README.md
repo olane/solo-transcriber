@@ -125,7 +125,7 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
   half/double tempo buttons can fix a doubling grid.
 - Tempo comes from beat tracking on the mix; swing and rubato may need a manual
   BPM. Time signature defaults to 4/4.
-- Pitch bends are detected but not engraved.
+- Pitch bends are not engraved.
 - Jobs are saved under `data/jobs/<id>/` (audio, stems, notes and a `job.json`
   with the section and choices). They are restored on startup and listed on the
   start screen, so you can reopen a test file without uploading and separating

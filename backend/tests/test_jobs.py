@@ -39,7 +39,6 @@ def test_persist_round_trip_restores_every_field(tmp_path):
     job.transcription_first_note = 0.4
     job.transcription_instrument = "tenor"
     job.transcription_mode = "basic_pitch"
-    job.transcription_mock = False
     job.mock = True
     job.created_at = 1234.5
 

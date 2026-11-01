@@ -116,9 +116,8 @@ def note_events_to_notes(note_events) -> list[NoteEvent]:
             "end": round(float(end), 3),
             "pitch": int(round(float(pitch))),
             "velocity": max(1, min(127, round(float(amplitude) * 127))),
-            "bend": [int(value) for value in bend] if bend else None,
         }
-        for start, end, pitch, amplitude, bend in note_events
+        for start, end, pitch, amplitude, _ in note_events
     ]
 
 
@@ -136,7 +135,6 @@ def _mock_notes(duration: float) -> list[NoteEvent]:
                 "end": round(min(start + 0.4, limit), 3),
                 "pitch": pitch,
                 "velocity": 88,
-                "bend": None,
             }
         )
         start += 0.5
@@ -226,8 +224,5 @@ def transcribe_file(
     return notes, {
         "bpm": bpm,
         "duration": duration,
-        "mock": mock,
         "first_note": notes[0]["start"] if notes else 0.0,
-        "instrument": instrument,
-        "mode": mode,
     }

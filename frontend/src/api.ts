@@ -41,7 +41,6 @@ export type Transcription = {
   first_note: number;
   instrument: Instrument;
   mode: TranscriptionMode;
-  mock: boolean;
 };
 
 export type Job = {

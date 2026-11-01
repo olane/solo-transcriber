@@ -50,7 +50,6 @@ class Job:
     transcription_first_note: float = 0.0
     transcription_instrument: str = "alto"
     transcription_mode: str = "melody"
-    transcription_mock: bool = False
     created_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -185,9 +184,6 @@ class JobManager:
         job.transcription_mode = str(
             metadata.get("transcription_mode") or notes.get("mode") or "melody"
         )
-        job.transcription_mock = bool(
-            metadata.get("transcription_mock", notes.get("mock", False))
-        )
         job.transcription_duration = _to_float(
             metadata.get("transcription_duration", notes.get("duration"))
         )
@@ -220,7 +216,6 @@ class JobManager:
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
-            job.transcription_mock = False
         return job
 
     def persist(self, job: Job) -> None:
@@ -273,7 +268,6 @@ class JobManager:
                     first_note=job.transcription_first_note,
                     instrument=job.transcription_instrument,
                     mode=job.transcription_mode,
-                    mock=job.transcription_mock,
                 )
             return JobOut(
                 id=job.id,
@@ -312,7 +306,6 @@ class JobManager:
             job.transcription_first_note = 0.0
             job.transcription_instrument = "alto"
             job.transcription_mode = "melody"
-            job.transcription_mock = False
             job.error = None
         self.persist(job)
         self._executor.submit(self._separate_worker, job, start, end)
@@ -329,7 +322,6 @@ class JobManager:
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
-            job.transcription_mock = False
             job.error = None
         self.persist(job)
         self._executor.submit(
@@ -435,7 +427,6 @@ class JobManager:
                 "stem": stem,
                 "bpm": meta["bpm"],
                 "duration": meta["duration"],
-                "mock": meta["mock"],
                 "first_note": meta.get("first_note", 0.0),
                 "instrument": instrument,
                 "mode": mode,
@@ -452,7 +443,6 @@ class JobManager:
                 job.transcription_first_note = float(meta.get("first_note", 0.0))
                 job.transcription_instrument = instrument
                 job.transcription_mode = mode
-                job.transcription_mock = bool(meta["mock"])
                 job.set_phase("done", "Ready to play", 100)
                 job.error = None
             self.persist(job)

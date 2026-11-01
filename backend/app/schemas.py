@@ -42,7 +42,6 @@ class TranscriptionOut(BaseModel):
     first_note: float = 0.0
     instrument: str = "alto"
     mode: str = "melody"
-    mock: bool = False
 
 
 class JobOut(BaseModel):

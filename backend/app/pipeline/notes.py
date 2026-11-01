@@ -10,7 +10,6 @@ class NoteEvent(TypedDict):
     end: float
     pitch: float
     velocity: NotRequired[int]
-    bend: NotRequired[list[int] | None]
 
 
 def sort_and_dedupe(notes: list[NoteEvent]) -> list[NoteEvent]:

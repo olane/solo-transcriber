@@ -307,7 +307,6 @@ def transcribe_melody(
                 "end": round(end, 3),
                 "pitch": int(pitch),
                 "velocity": velocity,
-                "bend": None,
             }
         )
 
