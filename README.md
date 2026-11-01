@@ -82,7 +82,9 @@ ST_MOCK=1 uv run uvicorn app.main:app --app-dir backend --reload --port 8000
 | --- | --- | --- |
 | `ST_DATA_DIR` | `./data` | Uploads, stems, scores, notes |
 | `ST_MOCK` | off | Use the fake separation/transcription path |
-| `ST_DEMUCS_MODEL` | `htdemucs_6s` | Any Demucs model name |
+| `ST_DEMUCS_MODEL` | `htdemucs_6s` | Any Demucs model name (`htdemucs_ft` trades stems for quality) |
+| `ST_DEMUCS_SHIFTS` | `4` | Equivariant shifts; higher is more accurate and slower (`1` disables) |
+| `ST_DEMUCS_OVERLAP` | `0.25` | Demucs window overlap |
 | `ST_DEVICE` | `auto` | `auto`, `mps`, `cuda` or `cpu` |
 | `ST_CREPE_MODEL` | `tiny` | `tiny` (fast) or `full` (slower, more accurate) |
 | `ST_MAX_UPLOAD_MB` | `300` | Upload limit |
@@ -107,7 +109,14 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
 
 - Separation is the weak link. Sax lines often share the `other` stem with
   guitars, keys or synths, so bleed is normal. Audition everything; a solo
-  recording can be transcribed directly with "original mix".
+  recording can be transcribed directly with "original mix". The suggested
+  stem is now picked by tracking a single sustained f0 in the sax register
+  across every stem, so a solo that lands in `vocals` or `guitar` is suggested
+  too. Ties keep `other`.
+- Separation runs with Demucs equivariant shifts (`ST_DEMUCS_SHIFTS`, default
+  `4`). Set it to `1` for the original speed, or raise it further for a small
+  quality gain at proportionally more time. `ST_DEMUCS_MODEL=htdemucs_ft`
+  often separates better than the 6-stem model but only produces four stems.
 - Select only the solo section first. It makes separation much faster and
   stops long intros, outros and other solos from confusing the transcription.
 - Auditioning uses the converted WAV directly for normal tracks, so the section
