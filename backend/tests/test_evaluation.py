@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.evaluation import evaluate_notes, load_reference_notes
+from app.evaluation import evaluate_notes, find_reference, load_reference_notes
 
 NOTES = [
     {"start": 0.0, "end": 0.5, "pitch": 60},
@@ -45,6 +45,21 @@ def test_load_json_reference(tmp_path):
     loaded = load_reference_notes(path)
 
     assert [note["pitch"] for note in loaded] == [60, 62, 64]
+
+
+def test_find_reference_accepts_scores_beside_the_audio(tmp_path):
+    audio = tmp_path / "take.wav"
+    audio.write_bytes(b"")
+
+    assert find_reference(audio) is None
+
+    midi = tmp_path / "take.mid"
+    midi.write_bytes(b"")
+    assert find_reference(audio) == midi
+
+    notes = tmp_path / "take.json"
+    notes.write_text("{}")
+    assert find_reference(audio) == midi
 
 
 def test_load_midi_reference(tmp_path):

@@ -7,18 +7,22 @@ import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 from . import config
 from .pipeline.audio import make_preview, to_wav, trim_wav, wav_duration
 from .pipeline.notation import render_score, safe_title
-from .pipeline.separate import STEM_ORDER, SUGGESTED_STEM, separate_stems
+from .pipeline.separate import SUGGESTED_STEM, order_stems, separate_stems
 from .pipeline.transcribe import transcribe_file
-from .schemas import JobOut, SectionOut, StemOut, TranscriptionOut
+from .schemas import JobOut, JobStatus, SectionOut, StemOut, TranscriptionOut
 
 SCORE_CACHE_VERSION = "2"
+RUNNING_STATUSES: frozenset[JobStatus] = frozenset(
+    {"queued", "preparing", "separating", "transcribing"}
+)
+RUNTIME_JOB_FIELDS = frozenset({"dir", "lock"})
 
 # Stream the lossless source to the browser for normal tracks; only long files
 # get a compressed audition copy.
@@ -31,7 +35,7 @@ class Job:
     filename: str
     mock: bool
     dir: Path
-    status: str = "queued"
+    status: JobStatus = "queued"
     stage: str = "Queued"
     progress: int = 0
     error: str | None = None
@@ -46,7 +50,6 @@ class Job:
     transcription_first_note: float = 0.0
     transcription_instrument: str = "alto"
     transcription_mode: str = "melody"
-    transcription_mock: bool = False
     created_at: float = field(default_factory=time.time)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -75,6 +78,21 @@ class Job:
             return self.mix_wav
         return self.dir / "stems" / f"{stem}.wav"
 
+    def metadata(self) -> dict[str, Any]:
+        """Return the JSON-serialisable fields, excluding runtime-only state."""
+        payload: dict[str, Any] = {}
+        for item in fields(self):
+            if item.name in RUNTIME_JOB_FIELDS:
+                continue
+            value = getattr(self, item.name)
+            payload[item.name] = list(value) if isinstance(value, list) else value
+        return payload
+
+    def set_phase(self, status: JobStatus, stage: str, progress: int) -> None:
+        self.status = status
+        self.stage = stage
+        self.progress = progress
+
 
 class JobManager:
     def __init__(self) -> None:
@@ -95,10 +113,6 @@ class JobManager:
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             return self._jobs.get(job_id)
-
-    def delete(self, job_id: str) -> None:
-        with self._lock:
-            self._jobs.pop(job_id, None)
 
     def remove(self, job: Job) -> None:
         with self._lock:
@@ -163,53 +177,71 @@ class JobManager:
         job.stems = persisted_stems + [
             name for name in disk_stems if name not in persisted_stems
         ]
+        metadata_bpm = _optional_float(metadata.get("bpm"))
+        notes_bpm = _optional_float(notes.get("bpm"))
+        prefer_notes = metadata_bpm is None and notes_bpm is not None
+
+        def restore_value(
+            metadata_key: str,
+            notes_key: str,
+            *,
+            zero_is_missing: bool = False,
+        ) -> Any:
+            primary = (
+                notes.get(notes_key)
+                if prefer_notes
+                else metadata.get(metadata_key)
+            )
+            fallback = (
+                metadata.get(metadata_key)
+                if prefer_notes
+                else notes.get(notes_key)
+            )
+            return _prefer(primary, fallback, zero_is_missing=zero_is_missing)
+
         job.selected_stem = metadata.get("selected_stem") or notes.get("stem")
         job.transcription_instrument = str(
-            metadata.get("transcription_instrument") or notes.get("instrument") or "alto"
+            restore_value("transcription_instrument", "instrument") or "alto"
         )
         job.transcription_mode = str(
-            metadata.get("transcription_mode") or notes.get("mode") or "melody"
-        )
-        job.transcription_mock = bool(
-            metadata.get("transcription_mock", notes.get("mock", False))
+            restore_value("transcription_mode", "mode") or "melody"
         )
         job.transcription_duration = _to_float(
-            metadata.get("transcription_duration", notes.get("duration"))
+            restore_value(
+                "transcription_duration", "duration", zero_is_missing=True
+            )
         )
         job.transcription_first_note = _to_float(
-            metadata.get("transcription_first_note", notes.get("first_note"))
+            restore_value(
+                "transcription_first_note", "first_note", zero_is_missing=True
+            )
         )
-        job.bpm = _optional_float(metadata.get("bpm", notes.get("bpm")))
+        job.bpm = _optional_float(restore_value("bpm", "bpm"))
         job.note_count = int(metadata.get("note_count") or len(notes.get("notes") or []))
 
         if str(metadata.get("status")) == "error":
-            job.status = "error"
-            job.stage = str(metadata.get("stage") or "Something went wrong")
-            job.progress = int(metadata.get("progress") or 0)
+            job.set_phase(
+                "error",
+                str(metadata.get("stage") or "Something went wrong"),
+                int(metadata.get("progress") or 0),
+            )
             job.error = metadata.get("error")
             return job
 
         if job.bpm is not None and (job_dir / "notes.json").exists():
-            job.status = "done"
-            job.stage = "Ready to play"
-            job.progress = 100
+            job.set_phase("done", "Ready to play", 100)
         elif (
             job.section_start is not None
             and job.section_end is not None
             and job.stems
         ):
-            job.status = "awaiting_stem"
-            job.stage = "Pick the sax stem"
-            job.progress = 55
+            job.set_phase("awaiting_stem", "Pick the sax stem", 55)
         else:
-            job.status = "awaiting_section"
-            job.stage = "Choose the solo section"
-            job.progress = 10
+            job.set_phase("awaiting_section", "Choose the solo section", 10)
             job.bpm = None
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
-            job.transcription_mock = False
         return job
 
     def persist(self, job: Job) -> None:
@@ -217,26 +249,7 @@ class JobManager:
             with job.lock:
                 payload: dict[str, Any] = {
                     "version": 1,
-                    "id": job.id,
-                    "filename": job.filename,
-                    "mock": job.mock,
-                    "created_at": job.created_at,
-                    "status": job.status,
-                    "stage": job.stage,
-                    "progress": job.progress,
-                    "error": job.error,
-                    "duration": job.duration,
-                    "section_start": job.section_start,
-                    "section_end": job.section_end,
-                    "stems": list(job.stems),
-                    "selected_stem": job.selected_stem,
-                    "bpm": job.bpm,
-                    "note_count": job.note_count,
-                    "transcription_duration": job.transcription_duration,
-                    "transcription_first_note": job.transcription_first_note,
-                    "transcription_instrument": job.transcription_instrument,
-                    "transcription_mode": job.transcription_mode,
-                    "transcription_mock": job.transcription_mock,
+                    **job.metadata(),
                 }
             path = job.metadata_path
             temp = path.with_suffix(".json.tmp")
@@ -281,7 +294,6 @@ class JobManager:
                     first_note=job.transcription_first_note,
                     instrument=job.transcription_instrument,
                     mode=job.transcription_mode,
-                    mock=job.transcription_mock,
                 )
             return JobOut(
                 id=job.id,
@@ -303,17 +315,13 @@ class JobManager:
 
     def start_preparation(self, job: Job, upload: Path) -> None:
         with job.lock:
-            job.status = "preparing"
-            job.stage = "Preparing the audio"
-            job.progress = 5
+            job.set_phase("preparing", "Preparing the audio", 5)
         self.persist(job)
         self._executor.submit(self._prepare_worker, job, upload)
 
     def start_section_separation(self, job: Job, start: float, end: float) -> None:
         with job.lock:
-            job.status = "separating"
-            job.stage = "Separating the section"
-            job.progress = 15
+            job.set_phase("separating", "Separating the section", 15)
             job.section_start = start
             job.section_end = end
             job.stems = []
@@ -324,7 +332,6 @@ class JobManager:
             job.transcription_first_note = 0.0
             job.transcription_instrument = "alto"
             job.transcription_mode = "melody"
-            job.transcription_mock = False
             job.error = None
         self.persist(job)
         self._executor.submit(self._separate_worker, job, start, end)
@@ -333,9 +340,7 @@ class JobManager:
         self, job: Job, stem: str, instrument: str, mode: str
     ) -> None:
         with job.lock:
-            job.status = "transcribing"
-            job.stage = "Transcribing the sax line"
-            job.progress = 65
+            job.set_phase("transcribing", "Transcribing the sax line", 65)
             job.selected_stem = stem
             job.transcription_instrument = instrument
             job.transcription_mode = mode
@@ -343,7 +348,6 @@ class JobManager:
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
-            job.transcription_mock = False
             job.error = None
         self.persist(job)
         self._executor.submit(
@@ -367,7 +371,9 @@ class JobManager:
         )
         out = job.dir / "scores" / f"{safe}.{fmt}"
         if not out.exists():
-            payload = json.loads(job.notes_path.read_text())
+            payload = _read_json(job.notes_path)
+            if payload is None:
+                raise ValueError("This job has no transcription yet")
             render_score(
                 payload["notes"],
                 bpm,
@@ -383,10 +389,10 @@ class JobManager:
     def _fail(self, job: Job, exc: Exception) -> None:
         traceback.print_exc()
         with job.lock:
-            job.status = "error"
-            job.stage = "Something went wrong"
+            job.set_phase(
+                "error", "Something went wrong", min(job.progress, 99)
+            )
             job.error = str(exc) or exc.__class__.__name__
-            job.progress = min(job.progress, 99)
         self.persist(job)
 
     def _prepare_worker(self, job: Job, upload: Path) -> None:
@@ -402,9 +408,7 @@ class JobManager:
                     traceback.print_exc()
             with job.lock:
                 job.duration = duration
-                job.status = "awaiting_section"
-                job.stage = "Choose the solo section"
-                job.progress = 10
+                job.set_phase("awaiting_section", "Choose the solo section", 10)
             self.persist(job)
             upload.unlink(missing_ok=True)
         except Exception as exc:
@@ -430,9 +434,7 @@ class JobManager:
             stems = separate_stems(section, job.dir, mock=job.mock)
             with job.lock:
                 job.stems = stems
-                job.status = "awaiting_stem"
-                job.stage = "Pick the sax stem"
-                job.progress = 55
+                job.set_phase("awaiting_stem", "Pick the sax stem", 55)
             self.persist(job)
         except Exception as exc:
             self._fail(job, exc)
@@ -453,7 +455,6 @@ class JobManager:
                 "stem": stem,
                 "bpm": meta["bpm"],
                 "duration": meta["duration"],
-                "mock": meta["mock"],
                 "first_note": meta.get("first_note", 0.0),
                 "instrument": instrument,
                 "mode": mode,
@@ -470,10 +471,7 @@ class JobManager:
                 job.transcription_first_note = float(meta.get("first_note", 0.0))
                 job.transcription_instrument = instrument
                 job.transcription_mode = mode
-                job.transcription_mock = bool(meta["mock"])
-                job.status = "done"
-                job.stage = "Ready to play"
-                job.progress = 100
+                job.set_phase("done", "Ready to play", 100)
                 job.error = None
             self.persist(job)
         except Exception as exc:
@@ -502,14 +500,22 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
+def _prefer(
+    primary: Any, fallback: Any, *, zero_is_missing: bool = False
+) -> Any:
+    """Use ``fallback`` when ``primary`` is missing rather than present-but-empty."""
+    if primary is None:
+        return fallback
+    if zero_is_missing and _to_float(primary) == 0.0:
+        return fallback
+    return primary
+
+
 def _stems_on_disk(job_dir: Path) -> list[str]:
     stems_dir = job_dir / "stems"
     if not stems_dir.is_dir():
         return []
-    found = {path.stem for path in stems_dir.glob("*.wav")}
-    ordered = [name for name in STEM_ORDER if name in found]
-    ordered += sorted(found - set(ordered))
-    return ordered
+    return order_stems(path.stem for path in stems_dir.glob("*.wav"))
 
 
 manager = JobManager()

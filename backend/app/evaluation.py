@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import numpy as np
+
+from .pipeline.notes import NoteEvent
+
+REFERENCE_SUFFIXES = (".mid", ".midi", ".musicxml", ".xml", ".mxl", ".json")
 
 EMPTY_SCORES = {
     "Precision": 0.0,
@@ -24,12 +27,21 @@ EMPTY_SCORES = {
 }
 
 
+def find_reference(audio: Path) -> Path | None:
+    """Return the first supported reference score beside ``audio``, if any."""
+    for suffix in REFERENCE_SUFFIXES:
+        candidate = audio.with_suffix(suffix)
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def midi_to_hz(midi: float) -> float:
     return 440.0 * 2.0 ** ((midi - 69.0) / 12.0)
 
 
-def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    cleaned: list[dict[str, Any]] = []
+def normalize_notes(notes: list[NoteEvent]) -> list[NoteEvent]:
+    cleaned: list[NoteEvent] = []
     for note in notes:
         try:
             start = float(note["start"])
@@ -44,7 +56,7 @@ def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return cleaned
 
 
-def _arrays(notes: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray]:
+def _arrays(notes: list[NoteEvent]) -> tuple[np.ndarray, np.ndarray]:
     intervals = np.array(
         [[note["start"], note["end"]] for note in notes], dtype=float
     ).reshape(-1, 2)
@@ -53,8 +65,8 @@ def _arrays(notes: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray]:
 
 
 def evaluate_notes(
-    reference: list[dict[str, Any]],
-    estimate: list[dict[str, Any]],
+    reference: list[NoteEvent],
+    estimate: list[NoteEvent],
     onset_tolerance: float = 0.05,
     pitch_tolerance_cents: float = 50.0,
 ) -> dict[str, float]:
@@ -81,7 +93,7 @@ def evaluate_notes(
     return {key: float(value) for key, value in scores.items()}
 
 
-def _load_json_notes(path: Path) -> list[dict[str, Any]]:
+def _load_json_notes(path: Path) -> list[NoteEvent]:
     payload = json.loads(path.read_text())
     if isinstance(payload, dict):
         payload = payload.get("notes", [])
@@ -90,13 +102,13 @@ def _load_json_notes(path: Path) -> list[dict[str, Any]]:
     return normalize_notes(payload)
 
 
-def _load_score_notes(path: Path) -> list[dict[str, Any]]:
+def _load_score_notes(path: Path) -> list[NoteEvent]:
     from music21 import chord, converter, note, tempo
 
     score = converter.parse(str(path))
     flat = score.flatten()
     events = getattr(flat, "secondsMap", None) or []
-    notes: list[dict[str, Any]] = []
+    notes: list[NoteEvent] = []
     for entry in events:
         element = entry.get("element")
         if isinstance(element, note.Note):
@@ -131,7 +143,7 @@ def _load_score_notes(path: Path) -> list[dict[str, Any]]:
     return normalize_notes(notes)
 
 
-def load_reference_notes(path: Path) -> list[dict[str, Any]]:
+def load_reference_notes(path: Path) -> list[NoteEvent]:
     """Read reference note events from JSON, MIDI or a music21-readable score."""
     if path.suffix.lower() == ".json":
         return _load_json_notes(path)

@@ -8,6 +8,17 @@ export type JobStatus =
   | "done"
   | "error";
 
+export const RUNNING_STATUSES: readonly JobStatus[] = [
+  "queued",
+  "preparing",
+  "separating",
+  "transcribing",
+];
+
+export function isRunning(status: JobStatus): boolean {
+  return RUNNING_STATUSES.includes(status);
+}
+
 export type Instrument = "concert" | "soprano" | "alto" | "tenor" | "bari";
 export type TranscriptionMode = "melody" | "basic_pitch";
 export type ScoreFormat = "musicxml" | "midi";
@@ -30,7 +41,6 @@ export type Transcription = {
   first_note: number;
   instrument: Instrument;
   mode: TranscriptionMode;
-  mock: boolean;
 };
 
 export type Job = {

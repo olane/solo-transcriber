@@ -7,9 +7,9 @@ from typing import Any
 from .. import config
 from .audio import detect_bpm, wav_duration
 from .melody import transcribe_melody
+from .notes import NoteEvent, sort_and_dedupe
 
 MIN_NOTE_SECONDS = 0.04
-SAME_ONSET_SECONDS = 0.001
 NOTE_GAP_SECONDS = 0.01
 ALTISSIMO_SEMITONES = 3
 RANGE_BOTTOM_MARGIN = 2
@@ -39,13 +39,13 @@ def frequency_bounds(instrument: str) -> tuple[float, float]:
 
 
 def enforce_instrument_range(
-    notes: list[dict[str, Any]], instrument: str
-) -> list[dict[str, Any]]:
+    notes: list[NoteEvent], instrument: str
+) -> list[NoteEvent]:
     """Fold octave harmonics into the sax range and drop distant bleed."""
     low, high = INSTRUMENT_RANGES[instrument]
     floor = low - RANGE_BOTTOM_MARGIN
     ceiling = high + ALTISSIMO_SEMITONES
-    ranged: list[dict[str, Any]] = []
+    ranged: list[NoteEvent] = []
     for note in notes:
         pitch = int(note["pitch"])
         while pitch > ceiling:
@@ -60,8 +60,8 @@ def enforce_instrument_range(
 
 
 def repair_octave_jumps(
-    notes: list[dict[str, Any]], instrument: str
-) -> list[dict[str, Any]]:
+    notes: list[NoteEvent], instrument: str
+) -> list[NoteEvent]:
     """Snap a short, isolated octave spike back to its neighbours' octave."""
     low, high = INSTRUMENT_RANGES[instrument]
     repaired = [dict(note) for note in notes]
@@ -91,21 +91,16 @@ def repair_octave_jumps(
     return repaired
 
 
-def monophonic_cleanup(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def monophonic_cleanup(notes: list[NoteEvent]) -> list[NoteEvent]:
     """Keep a single sax line: drop specks, dedupe attacks, trim overlaps."""
+    copied = [NoteEvent(**note) for note in notes]
     cleaned = [
         note
-        for note in notes
+        for note in copied
         if note["end"] - note["start"] >= MIN_NOTE_SECONDS
         and 0 <= int(note["pitch"]) <= 127
     ]
-    cleaned.sort(key=lambda note: (note["start"], -int(note["velocity"])))
-
-    deduped: list[dict[str, Any]] = []
-    for note in cleaned:
-        if deduped and note["start"] - deduped[-1]["start"] < SAME_ONSET_SECONDS:
-            continue
-        deduped.append(note)
+    deduped = sort_and_dedupe(cleaned)
 
     for current, following in zip(deduped, deduped[1:]):
         latest_end = following["start"] - NOTE_GAP_SECONDS
@@ -115,22 +110,21 @@ def monophonic_cleanup(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [note for note in deduped if note["end"] > note["start"]]
 
 
-def note_events_to_notes(note_events) -> list[dict[str, Any]]:
+def note_events_to_notes(note_events) -> list[NoteEvent]:
     return [
         {
             "start": round(float(start), 3),
             "end": round(float(end), 3),
             "pitch": int(round(float(pitch))),
             "velocity": max(1, min(127, round(float(amplitude) * 127))),
-            "bend": [int(value) for value in bend] if bend else None,
         }
-        for start, end, pitch, amplitude, bend in note_events
+        for start, end, pitch, amplitude, _ in note_events
     ]
 
 
-def _mock_notes(duration: float) -> list[dict[str, Any]]:
+def _mock_notes(duration: float) -> list[NoteEvent]:
     scale = [60, 62, 64, 65, 67, 69, 71, 72]
-    notes: list[dict[str, Any]] = []
+    notes: list[NoteEvent] = []
     start = 0.0
     index = 0
     limit = min(duration or 8.0, 30.0)
@@ -142,7 +136,6 @@ def _mock_notes(duration: float) -> list[dict[str, Any]]:
                 "end": round(min(start + 0.4, limit), 3),
                 "pitch": pitch,
                 "velocity": 88,
-                "bend": None,
             }
         )
         start += 0.5
@@ -152,7 +145,7 @@ def _mock_notes(duration: float) -> list[dict[str, Any]]:
     return monophonic_cleanup(notes)
 
 
-def _basic_pitch_notes(path: Path, instrument: str) -> list[dict[str, Any]]:
+def _basic_pitch_notes(path: Path, instrument: str) -> list[NoteEvent]:
     if importlib.util.find_spec("basic_pitch") is None:
         raise RuntimeError(
             "Basic Pitch is not installed. Install the ML extras with: uv sync --extra ml"
@@ -188,7 +181,7 @@ def _basic_pitch_notes(path: Path, instrument: str) -> list[dict[str, Any]]:
     return monophonic_cleanup(note_events_to_notes(note_events))
 
 
-def _melody_notes(path: Path, instrument: str) -> list[dict[str, Any]]:
+def _melody_notes(path: Path, instrument: str) -> list[NoteEvent]:
     if importlib.util.find_spec("torchcrepe") is None:
         raise RuntimeError(
             "Melody mode needs torchcrepe. Install the ML extras with: uv sync --extra ml"
@@ -208,7 +201,7 @@ def transcribe_file(
     mock: bool = False,
     mode: str = "melody",
     instrument: str = "alto",
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[NoteEvent], dict[str, Any]]:
     if instrument not in INSTRUMENT_RANGES:
         raise ValueError(f"Unknown instrument: {instrument}")
     if mode not in MODES:
@@ -232,8 +225,5 @@ def transcribe_file(
     return notes, {
         "bpm": bpm,
         "duration": duration,
-        "mock": mock,
         "first_note": notes[0]["start"] if notes else 0.0,
-        "instrument": instrument,
-        "mode": mode,
     }

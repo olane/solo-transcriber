@@ -15,22 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.evaluation import evaluate_notes, load_reference_notes  # noqa: E402
+from app.evaluation import evaluate_notes, find_reference, load_reference_notes  # noqa: E402
 from app.pipeline.transcribe import (  # noqa: E402
     INSTRUMENT_RANGES,
     MODES,
     transcribe_file,
 )
-
-REFERENCE_SUFFIXES = (".mid", ".midi", ".musicxml", ".xml", ".mxl", ".json")
-
-
-def find_reference(audio: Path) -> Path | None:
-    for suffix in REFERENCE_SUFFIXES:
-        candidate = audio.with_suffix(suffix)
-        if candidate.exists():
-            return candidate
-    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -126,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps({"summary": summary, "results": rows}, indent=2))
         print(f"Wrote {args.json}")
-    return 1 if failures == len(rows) else 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

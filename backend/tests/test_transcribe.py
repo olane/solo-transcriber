@@ -11,31 +11,44 @@ from app.pipeline.transcribe import (
 
 
 def note(start, end, pitch):
-    return {"start": start, "end": end, "pitch": pitch, "velocity": 80, "bend": None}
+    return {"start": start, "end": end, "pitch": pitch, "velocity": 80}
 
 
 def test_note_events_are_json_safe():
     events = [
-        (0.0, 0.5, 60, 0.8, [np.int64(1), np.int64(2)]),
-        (0.6, 1.0, 62, 0.5, None),
+        (0.0, 0.5, np.float64(60.0), np.float64(0.8), [np.int64(1), np.int64(2)]),
+        (0.6, 1.0, np.float64(62.0), np.float64(0.5), None),
     ]
     notes = note_events_to_notes(events)
-    assert notes[0]["bend"] == [1, 2]
-    assert notes[1]["bend"] is None
+    assert notes[0]["pitch"] == 60
+    assert notes[1]["pitch"] == 62
+    assert "bend" not in notes[0]
     json.dumps(notes)
 
 
 def test_monophonic_cleanup_keeps_one_line():
     notes = [
-        {"start": 0.0, "end": 2.0, "pitch": 60, "velocity": 40, "bend": None},
-        {"start": 0.2, "end": 0.6, "pitch": 64, "velocity": 100, "bend": None},
-        {"start": 0.7, "end": 1.2, "pitch": 65, "velocity": 90, "bend": None},
-        {"start": 3.0, "end": 3.02, "pitch": 67, "velocity": 90, "bend": None},
+        {"start": 0.0, "end": 2.0, "pitch": 60, "velocity": 40},
+        {"start": 0.2, "end": 0.6, "pitch": 64, "velocity": 100},
+        {"start": 0.7, "end": 1.2, "pitch": 65, "velocity": 90},
+        {"start": 3.0, "end": 3.02, "pitch": 67, "velocity": 90},
     ]
     cleaned = monophonic_cleanup(notes)
     assert [note["pitch"] for note in cleaned] == [60, 64, 65]
     for current, following in zip(cleaned, cleaned[1:]):
         assert current["end"] <= following["start"]
+
+
+def test_monophonic_cleanup_does_not_mutate_its_input():
+    notes = [
+        {"start": 0.0, "end": 1.0, "pitch": 60, "velocity": 80},
+        {"start": 0.5, "end": 1.5, "pitch": 62, "velocity": 80},
+    ]
+    original = [dict(note) for note in notes]
+
+    monophonic_cleanup(notes)
+
+    assert notes == original
 
 
 def test_note_events_round_fractional_pitch():
