@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+REFERENCE_SUFFIXES = (".mid", ".midi", ".musicxml", ".xml", ".mxl", ".json")
+
 EMPTY_SCORES = {
     "Precision": 0.0,
     "Recall": 0.0,
@@ -22,6 +24,15 @@ EMPTY_SCORES = {
     "Offset_Recall": 0.0,
     "Offset_F-measure": 0.0,
 }
+
+
+def find_reference(audio: Path) -> Path | None:
+    """Return the first supported reference score beside ``audio``, if any."""
+    for suffix in REFERENCE_SUFFIXES:
+        candidate = audio.with_suffix(suffix)
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def midi_to_hz(midi: float) -> float:

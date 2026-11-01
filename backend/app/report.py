@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .evaluation import evaluate_notes, load_reference_notes
+from .evaluation import evaluate_notes, find_reference, load_reference_notes
 from .pipeline.audio import wav_duration
 from .pipeline.notation import render_score, safe_title
 from .pipeline.transcribe import transcribe_file
@@ -160,9 +160,9 @@ def collect_results(
     for audio in audio_files:
         name = audio.stem
         duration = wav_duration(audio)
-        reference_path = audio.with_suffix(".json")
+        reference_path = find_reference(audio)
         reference: list[dict[str, Any]] = []
-        if reference_path.exists():
+        if reference_path is not None:
             try:
                 reference = load_reference_notes(reference_path)
             except Exception as exc:
