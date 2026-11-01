@@ -224,8 +224,9 @@ stay in concert pitch even when the instrument transposes.
 When a change can affect notes or engraving, run both modes before and after
 and put the summary lines in the PR description (the pull request template has
 a `## Benchmark` section). The `Synthetic benchmark` GitHub Actions job also
-runs the suite on PRs that touch the pipeline and writes the summary to the job
-summary; it is informational, not a required check. Neither replaces real
+runs the suite on PRs that touch the pipeline, writes the summary to the job
+summary and posts it as a sticky comment on same-repo PRs; it is informational,
+not a required check. Neither replaces real
 recordings: the synthetic suite is a regression tripwire, and separation
 changes are not exercised because the harness feeds isolated stems straight to
 the transcriber.
