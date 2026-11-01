@@ -24,6 +24,8 @@ def test_alto_part_is_transposed_and_concert_midi(tmp_path):
     xml = xml_path.read_text()
     assert "<chromatic>-9</chromatic>" in xml
     assert "<fifths>3</fifths>" in xml
+    assert "<sign>G</sign>" in xml
+    assert "<sign>F</sign>" not in xml
 
     written = [n.nameWithOctave for n in converter.parse(str(xml_path)).recurse().notes]
     assert written == ["A4", "B4", "C#5", "D5"]

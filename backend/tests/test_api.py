@@ -53,12 +53,17 @@ def test_mock_pipeline_end_to_end(tmp_path):
     assert job["section"] == {"start": 0.25, "end": 2.5}
     assert any(stem["suggested"] for stem in job["stems"])
 
-    response = client.post(f"/api/jobs/{job['id']}/transcribe", json={"stem": "other"})
+    response = client.post(
+        f"/api/jobs/{job['id']}/transcribe",
+        json={"stem": "other", "instrument": "tenor", "mode": "basic_pitch"},
+    )
     assert response.status_code == 200, response.text
 
     job = wait_for(client, job["id"], {"done", "error"})
     assert job["status"] == "done", job
     assert job["transcription"]["note_count"] > 0
+    assert job["transcription"]["instrument"] == "tenor"
+    assert job["transcription"]["mode"] == "basic_pitch"
 
     response = client.get(
         f"/api/jobs/{job['id']}/score",

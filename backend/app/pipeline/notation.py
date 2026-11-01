@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from music21 import instrument, key, metadata, meter, note, pitch, stream, tempo
+from music21 import clef, instrument, key, metadata, meter, note, pitch, stream, tempo
 
 INSTRUMENTS = {
     "concert": instrument.Saxophone,
@@ -94,6 +94,7 @@ def build_score(
 
     part = stream.Part()
     part.insert(0, INSTRUMENTS[instrument_key]())
+    part.insert(0, clef.TrebleClef())
     part.insert(0, tempo.MetronomeMark(number=round(float(bpm), 1)))
     part.insert(0, meter.TimeSignature(time_signature))
 

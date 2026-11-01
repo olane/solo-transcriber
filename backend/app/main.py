@@ -129,7 +129,7 @@ def transcribe(job_id: str, request: TranscribeRequest) -> JobOut:
         raise HTTPException(status_code=400, detail="Unknown stem")
     if not job.mix_wav.exists():
         raise HTTPException(status_code=409, detail="The audio has not been prepared yet")
-    manager.start_transcription(job, request.stem)
+    manager.start_transcription(job, request.stem, request.instrument, request.mode)
     return manager.snapshot(job)
 
 

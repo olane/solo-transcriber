@@ -39,6 +39,8 @@ class Job:
     note_count: int = 0
     transcription_duration: float = 0.0
     transcription_first_note: float = 0.0
+    transcription_instrument: str = "alto"
+    transcription_mode: str = "melody"
     transcription_mock: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -116,6 +118,8 @@ class JobManager:
                     note_count=job.note_count,
                     duration=job.transcription_duration,
                     first_note=job.transcription_first_note,
+                    instrument=job.transcription_instrument,
+                    mode=job.transcription_mode,
                     mock=job.transcription_mock,
                 )
             return JobOut(
@@ -154,23 +158,31 @@ class JobManager:
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
+            job.transcription_instrument = "alto"
+            job.transcription_mode = "melody"
             job.transcription_mock = False
             job.error = None
         self._executor.submit(self._separate_worker, job, start, end)
 
-    def start_transcription(self, job: Job, stem: str) -> None:
+    def start_transcription(
+        self, job: Job, stem: str, instrument: str, mode: str
+    ) -> None:
         with job.lock:
             job.status = "transcribing"
             job.stage = "Transcribing the sax line"
             job.progress = 65
             job.selected_stem = stem
+            job.transcription_instrument = instrument
+            job.transcription_mode = mode
             job.bpm = None
             job.note_count = 0
             job.transcription_duration = 0.0
             job.transcription_first_note = 0.0
             job.transcription_mock = False
             job.error = None
-        self._executor.submit(self._transcribe_worker, job, stem)
+        self._executor.submit(
+            self._transcribe_worker, job, stem, instrument, mode
+        )
 
     def render(
         self,
@@ -255,11 +267,17 @@ class JobManager:
         except Exception as exc:
             self._fail(job, exc)
 
-    def _transcribe_worker(self, job: Job, stem: str) -> None:
+    def _transcribe_worker(
+        self, job: Job, stem: str, instrument: str, mode: str
+    ) -> None:
         try:
             self._clear_scores(job)
             notes, meta = transcribe_file(
-                job.stem_path(stem), job.mix_wav, mock=job.mock
+                job.stem_path(stem),
+                job.mix_wav,
+                mock=job.mock,
+                mode=mode,
+                instrument=instrument,
             )
             payload: dict[str, Any] = {
                 "stem": stem,
@@ -267,6 +285,8 @@ class JobManager:
                 "duration": meta["duration"],
                 "mock": meta["mock"],
                 "first_note": meta.get("first_note", 0.0),
+                "instrument": instrument,
+                "mode": mode,
                 "section_start": job.section_start,
                 "section_end": job.section_end,
                 "filename": job.filename,
@@ -278,6 +298,8 @@ class JobManager:
                 job.note_count = len(notes)
                 job.transcription_duration = float(meta["duration"])
                 job.transcription_first_note = float(meta.get("first_note", 0.0))
+                job.transcription_instrument = instrument
+                job.transcription_mode = mode
                 job.transcription_mock = bool(meta["mock"])
                 job.status = "done"
                 job.stage = "Ready to play"

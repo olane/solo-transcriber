@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 Instrument = Literal["concert", "soprano", "alto", "tenor", "bari"]
 ScoreFormat = Literal["musicxml", "midi"]
+TranscriptionMode = Literal["melody", "basic_pitch"]
 
 
 class StemOut(BaseModel):
@@ -29,6 +30,8 @@ class TranscriptionOut(BaseModel):
     note_count: int
     duration: float
     first_note: float = 0.0
+    instrument: str = "alto"
+    mode: str = "melody"
     mock: bool = False
 
 
@@ -50,3 +53,5 @@ class JobOut(BaseModel):
 
 class TranscribeRequest(BaseModel):
     stem: str = "other"
+    instrument: Instrument = "alto"
+    mode: TranscriptionMode = "melody"

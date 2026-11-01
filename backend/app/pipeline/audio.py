@@ -56,7 +56,7 @@ def detect_bpm(path: Path) -> float | None:
     import numpy as np
 
     try:
-        y, sr = librosa.load(str(path), sr=22050, mono=True)
+        y, sr = librosa.load(str(path), sr=22050, mono=True, duration=180)
         if y.size == 0:
             return None
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)

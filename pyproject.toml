@@ -25,6 +25,7 @@ ml = [
     "setuptools<81",
     "torch==2.2.2",
     "torchaudio==2.2.2",
+    "torchcrepe>=0.0.24",
 ]
 dev = [
     "pytest>=8.2",
