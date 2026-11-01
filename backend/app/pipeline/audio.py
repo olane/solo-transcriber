@@ -104,7 +104,7 @@ def trim_wav(src: Path, dst: Path, start: float, end: float) -> Path:
 
 
 def make_preview(src: Path, dst: Path) -> Path:
-    """Small mono MP3 used only for the browser waveform."""
+    """High-quality MP3 used for auditioning while choosing the section."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         ffmpeg_binary(),
@@ -116,11 +116,11 @@ def make_preview(src: Path, dst: Path) -> Path:
         str(src),
         "-vn",
         "-ac",
-        "1",
+        "2",
         "-ar",
-        "16000",
+        "44100",
         "-b:a",
-        "48k",
+        "320k",
         str(dst),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)

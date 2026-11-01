@@ -40,7 +40,7 @@ def test_mock_pipeline_end_to_end(tmp_path):
 
     job = upload(client, wav)
     assert job["status"] == "awaiting_section", job
-    assert job["preview_url"]
+    assert job["preview_url"].endswith("/source.wav")
     assert job["duration"] == 3.0
 
     response = client.post(

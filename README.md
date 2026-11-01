@@ -108,6 +108,9 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
   recording can be transcribed directly with "original mix".
 - Select only the solo section first. It makes separation much faster and
   stops long intros, outros and other solos from confusing the transcription.
+- Auditioning uses the converted WAV directly for normal tracks, so the section
+  picker is lossless. Only files over ~10 minutes get a 320 kbps MP3 audition
+  copy. Separation and transcription always use the WAV.
 - **Melody mode** (default) uses CREPE to follow the dominant single line and
   limits detection to your sax's concert range. It is much cleaner on a
   saxophone stem than polyphonic transcription.

@@ -19,6 +19,10 @@ from .schemas import JobOut, SectionOut, StemOut, TranscriptionOut
 
 SCORE_CACHE_VERSION = "2"
 
+# Stream the lossless source to the browser for normal tracks; only long files
+# get a compressed audition copy.
+PREVIEW_THRESHOLD_BYTES = 100 * 1024 * 1024
+
 
 @dataclass
 class Job:
@@ -228,10 +232,11 @@ class JobManager:
             duration = wav_duration(job.source_wav)
             if duration < 2.0:
                 raise RuntimeError("The track must be at least 2 seconds long")
-            try:
-                make_preview(job.source_wav, job.dir / "preview.mp3")
-            except Exception:
-                traceback.print_exc()
+            if job.source_wav.stat().st_size > PREVIEW_THRESHOLD_BYTES:
+                try:
+                    make_preview(job.source_wav, job.dir / "preview.mp3")
+                except Exception:
+                    traceback.print_exc()
             with job.lock:
                 job.duration = duration
                 job.status = "awaiting_section"
