@@ -162,12 +162,15 @@ backend/app/
     notation.py        music21 score building and transposition
     evaluation.py      mir_eval reference scoring for benchmark runs
     synthetic.py       synthetic sax stems with exact note references
+    report.py          self-contained HTML benchmark report
 backend/tests/         notation, melody, evaluation and mock pipeline tests
 frontend/src/          React UI, OSMD score viewer
 scripts/dev.sh         backend + frontend in one terminal
 scripts/evaluate.py    transcription accuracy benchmark
 scripts/make_synthetic_benchmark.py
                        generate a repeatable regression dataset
+scripts/benchmark_report.py
+                       build the visual HTML report
 ```
 
 ## Tests
@@ -207,6 +210,19 @@ uv run python scripts/evaluate.py benchmark/synthetic --instrument alto --mode m
 The synthetic scores are useful for comparing changes and catching regressions,
 but they are not a prediction of real-world accuracy. Add a few corrected real
 transcriptions to the dataset as soon as you can.
+
+To listen to each take and compare the reference with the transcription, build
+the HTML report:
+
+```bash
+uv run python scripts/benchmark_report.py benchmark/synthetic \
+  --instrument alto --mode melody --open
+```
+
+It writes `benchmark/synthetic/report.html` with an audio player per take,
+reference and transcription piano rolls that follow the playhead, note tables,
+F-measures and links to MusicXML/MIDI for MuseScore. Use `--mock` only to smoke
+test the report plumbing without loading a model.
 
 ## Roadmap
 
