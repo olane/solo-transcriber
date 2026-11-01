@@ -211,3 +211,34 @@ def test_extreme_keys_stay_within_seven_accidentals(tmp_path):
 
         sounding = [n.pitch.midi for n in converter.parse(str(midi_path)).recurse().notes]
         assert sounding == [71, 73, 75, 76, 78, 80, 82, 83]
+
+
+def test_bar_offset_puts_the_first_note_inside_the_bar_with_a_rest():
+    # At 120 BPM, 0.5 s is one quarter note. The bar starts on the downbeat,
+    # so the first note is beat 2 and the bar opens with a rest.
+    notes = [
+        {"start": 0.5, "end": 1.0, "pitch": 60, "velocity": 80},
+        {"start": 1.0, "end": 1.5, "pitch": 62, "velocity": 80},
+    ]
+    part = build_score(
+        notes, 120, "concert", "4/4", "Aligned", bar_offset=0.0
+    ).parts[0]
+    events = list(part.recurse().notesAndRests)
+
+    assert round(float(events[0].offset), 3) == 0.0
+    assert isinstance(events[0], Rest)
+    assert round(float(events[1].offset), 3) == 1.0
+    assert part.getElementsByClass("Measure")[0].duration.quarterLength == 4.0
+
+
+def test_bar_offset_never_skips_a_pickup_note():
+    notes = [
+        {"start": 0.9, "end": 1.0, "pitch": 60, "velocity": 80},
+        {"start": 1.0, "end": 1.5, "pitch": 62, "velocity": 80},
+    ]
+    part = build_score(
+        notes, 120, "concert", "4/4", "Pickup", bar_offset=1.0
+    ).parts[0]
+    first = next(part.recurse().notes)
+
+    assert round(float(first.offset), 3) == 0.0

@@ -38,7 +38,9 @@ def _grid_error(offsets: list[float], divisors: tuple[int, ...]) -> float:
 
 
 def _quantization_divisors(
-    normalized: list[dict[str, Any]], seconds_per_quarter: float
+    normalized: list[dict[str, Any]],
+    seconds_per_quarter: float,
+    origin: float,
 ) -> tuple[int, ...]:
     """Prefer a straight grid unless triplets clearly explain the onsets.
 
@@ -48,7 +50,6 @@ def _quantization_divisors(
     """
     if not normalized:
         return STRAIGHT_DIVISORS
-    origin = float(normalized[0]["start"])
     offsets = [
         (float(item["start"]) - origin) / seconds_per_quarter
         for item in normalized
@@ -141,6 +142,7 @@ def build_score(
     instrument_key: str = "alto",
     time_signature: str = "4/4",
     title: str = "Transcription",
+    bar_offset: float | None = None,
 ):
     if instrument_key not in INSTRUMENTS:
         raise ValueError(f"Unknown instrument: {instrument_key}")
@@ -160,7 +162,10 @@ def build_score(
     part.insert(0, meter.TimeSignature(time_signature))
 
     seconds_per_quarter = 60.0 / float(bpm)
-    origin = float(normalized[0]["start"])
+    first_note = float(normalized[0]["start"])
+    # Bar 1 normally sits on a detected downbeat, so keep any pickup before the
+    # barline from disappearing.
+    origin = first_note if bar_offset is None else min(float(bar_offset), first_note)
     for item in normalized:
         event = note.Note(int(item["pitch"]))
         event.velocity = max(1, min(127, int(item.get("velocity", 80))))
@@ -184,7 +189,7 @@ def build_score(
 
     part.quantize(
         quarterLengthDivisors=_quantization_divisors(
-            normalized, seconds_per_quarter
+            normalized, seconds_per_quarter, origin
         ),
         processOffsets=True,
         processDurations=True,
@@ -216,8 +221,11 @@ def render_score(
     title: str,
     fmt: str,
     out_path: Path,
+    bar_offset: float | None = None,
 ) -> Path:
-    score = build_score(notes, bpm, instrument_key, time_signature, title)
+    score = build_score(
+        notes, bpm, instrument_key, time_signature, title, bar_offset
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     score.write(fmt, fp=str(out_path))
     if not out_path.exists():

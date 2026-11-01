@@ -117,6 +117,8 @@ def _render_notes(
     title: str,
     out_dir: Path,
     stem: str,
+    time_signature: str = "4/4",
+    bar_offset: float | None = None,
 ) -> tuple[Path | None, Path | None, Path | None]:
     notes_path = out_dir / f"{stem}.notes.json"
     notes_path.write_text(
@@ -124,6 +126,8 @@ def _render_notes(
             {
                 "source": title,
                 "bpm": round(float(bpm), 3),
+                "time_signature": time_signature,
+                "bar_offset": bar_offset,
                 "notes": notes,
             },
             indent=2,
@@ -132,8 +136,26 @@ def _render_notes(
     musicxml_path = out_dir / f"{stem}.musicxml"
     midi_path = out_dir / f"{stem}.mid"
     try:
-        render_score(notes, bpm, instrument, "4/4", title, "musicxml", musicxml_path)
-        render_score(notes, bpm, instrument, "4/4", title, "midi", midi_path)
+        render_score(
+            notes,
+            bpm,
+            instrument,
+            time_signature,
+            title,
+            "musicxml",
+            musicxml_path,
+            bar_offset=bar_offset,
+        )
+        render_score(
+            notes,
+            bpm,
+            instrument,
+            time_signature,
+            title,
+            "midi",
+            midi_path,
+            bar_offset=bar_offset,
+        )
     except Exception:
         return notes_path, None, None
     return notes_path, musicxml_path, midi_path
@@ -197,9 +219,18 @@ def collect_results(
             continue
 
         bpm = float(meta["bpm"])
+        time_signature = str(meta.get("time_signature", "4/4"))
+        bar_offset = meta.get("bar_offset")
         stem = safe_title(name)
         notes_path, musicxml_path, midi_path = _render_notes(
-            predicted, bpm, instrument, name, predictions, stem
+            predicted,
+            bpm,
+            instrument,
+            name,
+            predictions,
+            stem,
+            time_signature=time_signature,
+            bar_offset=bar_offset,
         )
         reference_musicxml = None
         if reference:
@@ -209,7 +240,7 @@ def collect_results(
                     reference,
                     bpm,
                     instrument,
-                    "4/4",
+                    time_signature,
                     f"{name} reference",
                     "musicxml",
                     reference_path_out,

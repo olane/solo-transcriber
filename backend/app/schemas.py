@@ -30,6 +30,8 @@ class TranscriptionOut(BaseModel):
     note_count: int
     duration: float
     first_note: float = 0.0
+    time_signature: str = "4/4"
+    bar_offset: float = 0.0
     instrument: str = "alto"
     mode: str = "melody"
     mock: bool = False

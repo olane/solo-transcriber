@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 
 from app.pipeline.transcribe import (
     enforce_instrument_range,
@@ -99,3 +100,28 @@ def test_repair_octave_jumps_keeps_octave_trills():
     assert [
         item["pitch"] for item in repair_octave_jumps(trill, "alto")
     ] == [60, 72, 60]
+
+
+def test_rhythm_metadata_maps_a_whole_track_downbeat_into_the_section(tmp_path):
+    from pathlib import Path
+
+    from app.pipeline.beats import BeatGrid
+    from app.pipeline.transcribe import _rhythm_metadata
+
+    grid = BeatGrid(
+        bpm=120.0,
+        time_signature="4/4",
+        beats=tuple(index * 0.5 for index in range(60)),
+    )
+
+    meta = _rhythm_metadata(
+        Path("unused.wav"),
+        first_note_seconds=1.0,
+        section_start=10.2,
+        beat_grid=grid,
+        mock=False,
+    )
+
+    assert meta["bpm"] == 120.0
+    assert meta["time_signature"] == "4/4"
+    assert meta["bar_offset"] == pytest.approx(-0.2)

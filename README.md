@@ -123,8 +123,12 @@ and `mode` (`melody|basic_pitch`). Score query parameters: `instrument`,
   isolated octave spikes are snapped to their neighbours. Fast runs, growls and
   wide vibrato still produce wrong rhythms or notes. Clean up in MuseScore; the
   half/double tempo buttons can fix a doubling grid.
-- Tempo comes from beat tracking on the mix; swing and rubato may need a manual
-  BPM. Time signature defaults to 4/4.
+- Tempo, beats and the bar phase come from beat tracking on the whole uploaded
+  track, not the sax stem. The first bar is placed on a detected downbeat, so a
+  solo that enters mid-bar is engraved with the right rests instead of starting
+  at the first note. The time signature is inferred from the beat accents
+  (4/4, 3/4, 2/4 or 6/8) and remains editable. Swing, rubato and mid-track tempo
+  changes may still need a manual BPM.
 - Pitch bends are detected but not engraved.
 - Jobs are saved under `data/jobs/<id>/` (audio, stems, notes and a `job.json`
   with the section and choices). They are restored on startup and listed on the
@@ -159,7 +163,8 @@ backend/app/
   main.py              FastAPI routes and static audio serving
   jobs.py              job persistence, background worker, score cache
   pipeline/
-    audio.py           ffmpeg decode, duration, BPM
+    audio.py           ffmpeg decode, duration, BPM fallback
+    beats.py           whole-track tempo, beat grid and meter detection
     separate.py        Demucs stem separation
     melody.py          CREPE tracking, onset-aware note segmentation
     transcribe.py      melody / Basic Pitch dispatch, range and octave repair

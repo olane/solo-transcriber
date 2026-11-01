@@ -28,6 +28,8 @@ export type Transcription = {
   note_count: number;
   duration: number;
   first_note: number;
+  time_signature: string;
+  bar_offset: number;
   instrument: Instrument;
   mode: TranscriptionMode;
   mock: boolean;
