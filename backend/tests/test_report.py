@@ -16,6 +16,9 @@ def test_report_writes_audio_rolls_and_exports(tmp_path):
     assert "repeated-articulated" in page
     assert "<audio controls" in page
     assert '<canvas class="roll"' in page
+    assert 'data-score-kind="predicted"' in page
+    assert '"predictedXml":' in page
+    assert '"referenceXml":' in page
     assert "Onset F" in page
 
     predictions = benchmark / "predictions"

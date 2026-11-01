@@ -171,6 +171,8 @@ scripts/make_synthetic_benchmark.py
                        generate a repeatable regression dataset
 scripts/benchmark_report.py
                        build the visual HTML report
+scripts/synthetic_report.py
+                       generate, score, and open the report in one command
 ```
 
 ## Tests
@@ -211,18 +213,24 @@ The synthetic scores are useful for comparing changes and catching regressions,
 but they are not a prediction of real-world accuracy. Add a few corrected real
 transcriptions to the dataset as soon as you can.
 
-To listen to each take and compare the reference with the transcription, build
-the HTML report:
+To generate the synthetic suite, score it, build the report and open it in one
+command:
+
+```bash
+uv run python scripts/synthetic_report.py --instrument alto --mode melody
+```
+
+It writes `benchmark/synthetic/report.html` with an audio player per take,
+reference and transcription piano rolls that follow the playhead, rendered OSMD
+notation (the same library the app uses), note tables, F-measures and links to
+MusicXML/MIDI for MuseScore. Use `--no-open` to skip opening the browser and
+`--mock` only to smoke test the report plumbing without loading a model. The
+lower-level command is still available:
 
 ```bash
 uv run python scripts/benchmark_report.py benchmark/synthetic \
   --instrument alto --mode melody --open
 ```
-
-It writes `benchmark/synthetic/report.html` with an audio player per take,
-reference and transcription piano rolls that follow the playhead, note tables,
-F-measures and links to MusicXML/MIDI for MuseScore. Use `--mock` only to smoke
-test the report plumbing without loading a model.
 
 ## Roadmap
 

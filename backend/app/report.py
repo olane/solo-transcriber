@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,10 @@ NOTE_NAMES = (
     "B",
 )
 TABLE_LIMIT = 200
+OSMD_CDN = (
+    "https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@2.2.1/"
+    "build/opensheetmusicdisplay.min.js"
+)
 
 
 @dataclass
@@ -42,6 +47,8 @@ class ScenarioResult:
     musicxml_path: Path | None = None
     midi_path: Path | None = None
     reference_musicxml_path: Path | None = None
+    predicted_xml: str | None = None
+    reference_xml: str | None = None
     error: str | None = None
 
 
@@ -61,6 +68,39 @@ def _relative(path: Path | None, report_dir: Path) -> str | None:
     if path is None:
         return None
     return Path(os.path.relpath(path, report_dir)).as_posix()
+
+
+def _read_text(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        return path.read_text()
+    except OSError:
+        return None
+
+
+def _osmd_source(report_dir: Path) -> str:
+    root = Path(__file__).resolve().parents[2]
+    local = (
+        root
+        / "frontend"
+        / "node_modules"
+        / "opensheetmusicdisplay"
+        / "build"
+        / "opensheetmusicdisplay.min.js"
+    )
+    if local.exists():
+        target = report_dir / "opensheetmusicdisplay.min.js"
+        try:
+            if (
+                not target.exists()
+                or local.stat().st_mtime > target.stat().st_mtime
+            ):
+                shutil.copyfile(local, target)
+            return target.name
+        except OSError:
+            pass
+    return OSMD_CDN
 
 
 def _pitch_bounds(reference: list[dict], predicted: list[dict]) -> tuple[int, int]:
@@ -191,6 +231,8 @@ def collect_results(
                 musicxml_path=musicxml_path,
                 midi_path=midi_path,
                 reference_musicxml_path=reference_musicxml,
+                predicted_xml=_read_text(musicxml_path),
+                reference_xml=_read_text(reference_musicxml),
             )
         )
     return results
@@ -264,6 +306,16 @@ def _card_html(result: ScenarioResult, index: int, report_dir: Path) -> str:
     note_counts = (
         f"{len(result.reference)} reference / {len(result.predicted)} transcribed"
     )
+    if result.predicted_xml:
+        default_kind = "predicted"
+    elif result.reference_xml:
+        default_kind = "reference"
+    else:
+        default_kind = "predicted"
+    predicted_active = " active" if default_kind == "predicted" else ""
+    reference_active = " active" if default_kind == "reference" else ""
+    predicted_disabled = "" if result.predicted_xml else "disabled"
+    reference_disabled = "" if result.reference_xml else "disabled"
     return f"""
     <article class="card" id="scenario-{index}">
       <header class="card-head">
@@ -276,6 +328,20 @@ def _card_html(result: ScenarioResult, index: int, report_dir: Path) -> str:
       {error}
       <audio controls preload="metadata" data-index="{index}"
              src="{html.escape(audio_url, quote=True)}"></audio>
+      <section class="notation">
+        <div class="notation-head">
+          <h3>Score</h3>
+          <div class="score-tabs">
+            <button type="button" data-index="{index}" data-score-kind="predicted"
+                    class="score-tab{predicted_active}" {predicted_disabled}>Transcription</button>
+            <button type="button" data-index="{index}" data-score-kind="reference"
+                    class="score-tab{reference_active}" {reference_disabled}>Reference</button>
+          </div>
+        </div>
+        <div class="score-shell" data-score-index="{index}">
+          <p class="score-placeholder">Loading score…</p>
+        </div>
+      </section>
       <div class="rolls">
         <div>
           <h3>Reference</h3>
@@ -349,6 +415,8 @@ def _payload(results: list[ScenarioResult]) -> str:
                 "pitchMax": high,
                 "reference": result.reference,
                 "predicted": result.predicted,
+                "referenceXml": result.reference_xml,
+                "predictedXml": result.predicted_xml,
             }
         )
     return json.dumps(payload, separators=(",", ":")).replace("</", "<\\/")
@@ -408,6 +476,17 @@ nav b.good { color: var(--good); } nav b.warn { color: var(--warn); } nav b.bad 
 .pill.bad { color: var(--bad); border-color: rgba(239,100,97,.35); }
 .pill.muted { color: var(--muted); }
 audio { width: 100%; margin: 4px 0 14px; }
+.notation { margin: 0 0 14px; }
+.notation-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.notation-head h3 { margin: 0; }
+.score-tabs { display: flex; gap: 6px; }
+.score-tabs button { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+.score-tabs button:hover { color: var(--text); }
+.score-tabs button.active { color: var(--text); border-color: var(--accent); }
+.score-tabs button:disabled { opacity: .4; cursor: default; }
+.score-shell { background: #fbfaf7; border-radius: 10px; padding: 16px 14px; min-height: 180px; overflow-x: auto; }
+.score-shell .score { color: #111; }
+.score-placeholder { color: #6b7280; font-size: 13px; padding: 16px 4px; margin: 0; }
 .rolls { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 canvas.roll { width: 100%; height: 180px; display: block; background: #0a0d12; border: 1px solid var(--line); border-radius: 8px; }
 .error { margin: 0 0 12px; padding: 10px 12px; border: 1px solid rgba(239,100,97,.35); background: rgba(239,100,97,.08); color: var(--bad); border-radius: 8px; font-size: 13px; }
@@ -443,13 +522,16 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
   </div>
   <footer>
     Blue is the reference; orange is the transcription. Play a take to follow
-    the playhead over both piano rolls. Open the MusicXML in MuseScore for a
-    readable score.
+    the playhead over both piano rolls. Select a score tab to switch between the
+    reference and transcribed notation.
   </footer>
 </div>
+<script src="__OSMD__"></script>
 <script id="report-data" type="application/json">__DATA__</script>
 <script>
 const DATA = JSON.parse(document.getElementById('report-data').textContent);
+const OSMD = (window.opensheetmusicdisplay && window.opensheetmusicdisplay.OpenSheetMusicDisplay)
+  || window.OpenSheetMusicDisplay;
 const COLORS = {
   reference: '#5b8cff',
   predicted: '#ff9f43',
@@ -539,6 +621,92 @@ function renderScenario(index, playhead) {
   });
 }
 
+const scoreStates = new Map();
+
+function renderScore(index, kind) {
+  const item = DATA[index];
+  const shell = document.querySelector(
+    '.score-shell[data-score-index="' + index + '"]'
+  );
+  if (!item || !shell) return;
+
+  document.querySelectorAll(
+    'button[data-score-kind][data-index="' + index + '"]'
+  ).forEach((button) => {
+    button.classList.toggle('active', button.dataset.scoreKind === kind);
+  });
+
+  if (!OSMD) {
+    shell.innerHTML = '<p class="score-placeholder">Score rendering unavailable: OSMD did not load.</p>';
+    return;
+  }
+
+  const xml = kind === 'reference' ? item.referenceXml : item.predictedXml;
+  if (!xml) {
+    const existing = scoreStates.get(index);
+    if (existing) {
+      try { existing.osmd.clear(); } catch (error) {}
+      scoreStates.delete(index);
+    }
+    shell.innerHTML = '<p class="score-placeholder">No ' + kind + ' score.</p>';
+    return;
+  }
+
+  let state = scoreStates.get(index);
+  if (!state) {
+    shell.innerHTML = '';
+    const target = document.createElement('div');
+    target.className = 'score';
+    shell.appendChild(target);
+    state = {
+      osmd: new OSMD(target, { autoResize: true, drawingParameters: 'compacttight' }),
+      kind: null,
+      rendered: false
+    };
+    scoreStates.set(index, state);
+  }
+  if (state.kind === kind && state.rendered) return;
+
+  state.kind = kind;
+  state.rendered = false;
+  try { state.osmd.clear(); } catch (error) {}
+  state.osmd.load(xml)
+    .then(() => {
+      state.osmd.render();
+      state.rendered = true;
+    })
+    .catch(() => {
+      scoreStates.delete(index);
+      shell.innerHTML = '<p class="score-placeholder">Could not render the ' + kind + ' score.</p>';
+    });
+}
+
+function loadDefaultScore(index) {
+  const item = DATA[index];
+  if (!item) return;
+  renderScore(index, item.predictedXml ? 'predicted' : 'reference');
+}
+
+document.querySelectorAll('button[data-score-kind]').forEach((button) => {
+  button.addEventListener('click', () => {
+    renderScore(Number(button.dataset.index), button.dataset.scoreKind);
+  });
+});
+
+if ('IntersectionObserver' in window) {
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const index = Number(entry.target.dataset.scoreIndex);
+      if (!scoreStates.has(index)) loadDefaultScore(index);
+      observer.unobserve(entry.target);
+    });
+  }, { rootMargin: '240px' });
+  document.querySelectorAll('.score-shell').forEach((shell) => observer.observe(shell));
+} else {
+  DATA.forEach((item) => loadDefaultScore(item.index));
+}
+
 const audios = Array.from(document.querySelectorAll('audio'));
 let activeAudio = null;
 let activeIndex = -1;
@@ -590,6 +758,8 @@ def render_report(
 ) -> Path:
     out = Path(out_path)
     report_dir = out.parent
+    out.parent.mkdir(parents=True, exist_ok=True)
+    osmd_src = _osmd_source(report_dir)
     cards = "".join(
         _card_html(result, index, report_dir) for index, result in enumerate(results)
     )
@@ -600,8 +770,8 @@ def render_report(
         .replace("__NAV__", _nav_html(results))
         .replace("__CARDS__", cards)
         .replace("__DATA__", _payload(results))
+        .replace("__OSMD__", html.escape(osmd_src, quote=True))
     )
-    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page)
     return out
 
