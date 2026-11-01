@@ -118,6 +118,75 @@ def test_normalize_notes_clips_overlaps_and_duplicates():
     assert cleaned[1]["pitch"] == 62
 
 
+def test_normalize_notes_fills_tiny_legato_gaps():
+    notes = [
+        {"start": 0.0, "end": 0.5, "pitch": 60, "velocity": 80},
+        {"start": 0.54, "end": 1.0, "pitch": 62, "velocity": 80},
+    ]
+
+    cleaned = normalize_notes(notes)
+
+    assert cleaned[0]["end"] == 0.54
+
+
+def test_perturbed_legato_run_engraves_as_eighths():
+    bpm = 107.7
+    jitter = (0.0, 0.01, -0.01, 0.005, -0.005, 0.01, -0.01, 0.0)
+    notes = []
+    for index, offset in enumerate(jitter):
+        start = 0.45 + index * 0.28 + offset
+        notes.append(
+            {
+                "start": start,
+                "end": start + 0.24,
+                "pitch": 61 + index,
+                "velocity": 90,
+            }
+        )
+
+    part = build_score(notes, bpm, "concert", "4/4", "Legato").parts[0]
+    events = list(part.recurse().notes)
+
+    assert [round(float(event.offset), 3) for event in events] == [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+    ]
+    assert all(
+        round(float(event.duration.quarterLength), 3) == 0.5
+        for event in events
+    )
+    assert not any(
+        isinstance(event, Rest) for event in part.recurse().notesAndRests
+    )
+
+
+def test_triplet_run_uses_the_triplet_grid():
+    bpm = 120
+    step = 60.0 / bpm / 3.0
+    notes = [
+        {
+            "start": 0.2 + index * step,
+            "end": 0.2 + (index + 1) * step,
+            "pitch": 60 + index,
+            "velocity": 90,
+        }
+        for index in range(6)
+    ]
+
+    part = build_score(notes, bpm, "concert", "4/4", "Triplets").parts[0]
+    events = list(part.recurse().notes)
+
+    assert [
+        round(float(event.duration.quarterLength), 3) for event in events
+    ] == [0.333] * 6
+
+
 def test_extreme_keys_stay_within_seven_accidentals(tmp_path):
     # Concert B major plus alto/tenor transposition would naively need 8+ sharps.
     b_major = [

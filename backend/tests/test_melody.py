@@ -2,7 +2,12 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from app.pipeline.melody import _detect_onsets, _segment_notes, transcribe_melody
+from app.pipeline.melody import (
+    _confirmed_onsets,
+    _detect_onsets,
+    _segment_notes,
+    transcribe_melody,
+)
 from app.pipeline.transcribe import frequency_bounds
 
 
@@ -72,6 +77,29 @@ def test_onset_prevents_gap_merge():
     segments = _segment_notes(f0, periodicity, times(frames), onsets)
 
     assert len(segments) == 2
+
+
+def test_articulation_needs_a_confidence_dip():
+    periodicity = np.full(60, 0.95)
+    periodicity[30:33] = 0.6
+    onsets = np.array([10, 30])
+
+    confirmed = _confirmed_onsets(onsets, periodicity)
+
+    assert list(confirmed) == [30]
+
+
+def test_early_onset_before_pitch_change_does_not_leave_a_fragment():
+    midi = np.concatenate([np.full(50, 69.0), np.full(30, 70.0)])
+    onsets = np.zeros(80, dtype=bool)
+    onsets[46] = True
+
+    segments = _segment_notes(
+        midi_to_f0(midi), np.ones(80), times(80), onsets
+    )
+
+    assert [pitch for _, _, pitch in segments] == [69, 70]
+    assert segments[0][1] == 49
 
 
 def test_onset_detector_finds_repeated_attacks():

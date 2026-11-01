@@ -20,6 +20,46 @@ TIME_SIGNATURES = ("4/4", "3/4", "2/4", "6/8")
 KEY_SHIFTS = {"soprano": 2, "alto": 3, "tenor": 2, "bari": 3, "concert": 0}
 
 MIN_QUARTER_LENGTH = 0.05
+MAX_LEGATO_GAP_SECONDS = 0.06
+STRAIGHT_DIVISORS = (4,)
+TRIPLET_DIVISORS = (4, 3)
+TRIPLET_MIN_STRAIGHT_ERROR = 0.04
+TRIPLET_ERROR_RATIO = 0.5
+
+
+def _grid_error(offsets: list[float], divisors: tuple[int, ...]) -> float:
+    """Median distance from note onsets to the nearest allowed subdivision."""
+    grids = [1.0 / divisor for divisor in divisors]
+    errors = [
+        min(abs(value - round(value / grid) * grid) for grid in grids)
+        for value in offsets
+    ]
+    return float(sorted(errors)[len(errors) // 2]) if errors else 0.0
+
+
+def _quantization_divisors(
+    normalized: list[dict[str, Any]], seconds_per_quarter: float
+) -> tuple[int, ...]:
+    """Prefer a straight grid unless triplets clearly explain the onsets.
+
+    Mixing straight and triplet subdivisions makes an almost straight line of
+    notes sprout tuplets and rests from tiny timing errors, so only allow
+    triplets when they fit the onsets substantially better.
+    """
+    if not normalized:
+        return STRAIGHT_DIVISORS
+    origin = float(normalized[0]["start"])
+    offsets = [
+        (float(item["start"]) - origin) / seconds_per_quarter
+        for item in normalized
+    ]
+    straight = _grid_error(offsets, STRAIGHT_DIVISORS)
+    if straight <= TRIPLET_MIN_STRAIGHT_ERROR:
+        return STRAIGHT_DIVISORS
+    triplet = _grid_error(offsets, TRIPLET_DIVISORS)
+    if triplet < straight * TRIPLET_ERROR_RATIO:
+        return TRIPLET_DIVISORS
+    return STRAIGHT_DIVISORS
 
 
 def _respell_part(part, target_key) -> None:
@@ -71,6 +111,13 @@ def normalize_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 float(current["start"]) + MIN_QUARTER_LENGTH / 4,
                 float(following["start"]) - 0.001,
             )
+        else:
+            gap = float(following["start"]) - float(current["end"])
+            if 0 < gap <= MAX_LEGATO_GAP_SECONDS:
+                # Detectors often release a note a few frames early. Treat
+                # tiny gaps as legato instead of engraving a run as
+                # note/rest/note.
+                current["end"] = float(following["start"])
     return [item for item in result if float(item["end"]) > float(item["start"])]
 
 
@@ -136,7 +183,9 @@ def build_score(
     part.insert(0, key_signature)
 
     part.quantize(
-        quarterLengthDivisors=(4, 3),
+        quarterLengthDivisors=_quantization_divisors(
+            normalized, seconds_per_quarter
+        ),
         processOffsets=True,
         processDurations=True,
         inPlace=True,
